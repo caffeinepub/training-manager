@@ -2,9 +2,17 @@ import AdminPanel from "@/components/AdminPanel";
 import ModuleCard from "@/components/ModuleCard";
 import ModuleViewer from "@/components/ModuleViewer";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Toaster } from "@/components/ui/sonner";
 import { useTrainingData } from "@/hooks/useTrainingData";
-import type { TrainingModule } from "@/hooks/useTrainingData";
+import type { AppUser, TrainingModule } from "@/hooks/useTrainingData";
 import {
   CheckCircle2,
   Clock,
@@ -12,41 +20,68 @@ import {
   LayoutDashboard,
   Menu,
   ShieldCheck,
+  UserCheck,
   X,
 } from "lucide-react";
 import { useState } from "react";
 
 type View = "modules" | "admin";
+type AdminSubView = "panel" | "module-viewer";
 
 export default function App() {
   const [currentView, setCurrentView] = useState<View>("modules");
   const [selectedModule, setSelectedModule] = useState<TrainingModule | null>(
     null,
   );
+  const [adminSubView, setAdminSubView] = useState<AdminSubView>("panel");
+  const [adminViewingModule, setAdminViewingModule] =
+    useState<TrainingModule | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
   const {
     modules,
     completions,
+    users,
     createModule,
     updateModule,
     deleteModule,
     addCompletion,
     getCompletionForModule,
+    createUser,
+    deleteUser,
+    assignModulesToUser,
+    getAssignedModulesForUser,
+    getAssignedModuleIdsForUser,
   } = useTrainingData();
 
-  const completedCount = modules.filter((m) =>
-    completions.some((c) => c.moduleId === m.id),
+  // Filtered modules based on selected user
+  const displayedModules = selectedUserId
+    ? getAssignedModulesForUser(selectedUserId)
+    : modules;
+
+  const selectedUser = users.find((u) => u.id === selectedUserId) ?? null;
+
+  const completedCount = displayedModules.filter((m) =>
+    completions.some(
+      (c) =>
+        c.moduleId === m.id &&
+        (selectedUserId ? c.userId === selectedUserId : true),
+    ),
   ).length;
 
-  const pendingCount = modules.length - completedCount;
+  const pendingCount = displayedModules.length - completedCount;
+
+  const totalPending = modules.filter(
+    (m) => !completions.some((c) => c.moduleId === m.id),
+  ).length;
 
   const navItems = [
     {
       id: "modules" as View,
       label: "Training Modules",
       icon: LayoutDashboard,
-      badge: pendingCount > 0 ? String(pendingCount) : undefined,
+      badge: totalPending > 0 ? String(totalPending) : undefined,
     },
     {
       id: "admin" as View,
@@ -58,7 +93,19 @@ export default function App() {
   const handleNavigate = (view: View) => {
     setCurrentView(view);
     setSelectedModule(null);
+    setAdminSubView("panel");
+    setAdminViewingModule(null);
     setSidebarOpen(false);
+  };
+
+  const handleAdminViewModule = (module: TrainingModule) => {
+    setAdminViewingModule(module);
+    setAdminSubView("module-viewer");
+  };
+
+  const handleAdminBackFromModule = () => {
+    setAdminViewingModule(null);
+    setAdminSubView("panel");
   };
 
   return (
@@ -304,9 +351,13 @@ export default function App() {
             >
               {selectedModule
                 ? selectedModule.title
-                : currentView === "modules"
-                  ? "Training Modules"
-                  : "Admin"}
+                : currentView === "admin" &&
+                    adminSubView === "module-viewer" &&
+                    adminViewingModule
+                  ? adminViewingModule.title
+                  : currentView === "modules"
+                    ? "Training Modules"
+                    : "Admin"}
             </span>
           </div>
 
@@ -328,17 +379,32 @@ export default function App() {
           {selectedModule ? (
             <ModuleViewer
               module={selectedModule}
-              completion={getCompletionForModule(selectedModule.id)}
+              completion={getCompletionForModule(
+                selectedModule.id,
+                selectedUserId ?? undefined,
+              )}
+              selectedUser={selectedUser}
               onBack={() => setSelectedModule(null)}
               onComplete={(data) => {
-                addCompletion({ moduleId: selectedModule.id, ...data });
+                addCompletion({
+                  moduleId: selectedModule.id,
+                  userId: selectedUserId ?? undefined,
+                  userName: data.userName,
+                  initials: data.initials,
+                  signatureData: data.signatureData,
+                  managerName: data.managerName,
+                  managerSignatureData: data.managerSignatureData,
+                  trainingType: data.trainingType,
+                  releaseSteps: data.releaseSteps,
+                  acknowledgementInitials: data.acknowledgementInitials,
+                });
               }}
             />
           ) : currentView === "modules" ? (
             /* ── Modules List ── */
             <div className="animate-fade-in">
               {/* Page header */}
-              <div className="mb-6 flex items-start justify-between gap-4 flex-wrap">
+              <div className="mb-5 flex items-start justify-between gap-4 flex-wrap">
                 <div>
                   <h2
                     className="text-2xl font-display font-bold tracking-tight"
@@ -373,8 +439,10 @@ export default function App() {
                       className="text-lg font-display font-bold"
                       style={{ color: "oklch(var(--foreground))" }}
                     >
-                      {modules.length > 0
-                        ? Math.round((completedCount / modules.length) * 100)
+                      {displayedModules.length > 0
+                        ? Math.round(
+                            (completedCount / displayedModules.length) * 100,
+                          )
                         : 0}
                       %
                     </div>
@@ -412,8 +480,86 @@ export default function App() {
                 </div>
               </div>
 
+              {/* ── Trainee Selector ── */}
+              <div
+                className="mb-5 flex flex-wrap items-center gap-3 p-3 rounded-lg border"
+                style={{
+                  background: "oklch(var(--card))",
+                  borderColor: "oklch(var(--border))",
+                }}
+              >
+                <div className="flex items-center gap-2 shrink-0">
+                  <UserCheck
+                    className="w-4 h-4"
+                    style={{ color: "oklch(var(--primary))" }}
+                  />
+                  <span
+                    className="text-sm font-display font-semibold"
+                    style={{ color: "oklch(var(--foreground))" }}
+                  >
+                    View as trainee
+                  </span>
+                </div>
+
+                <Select
+                  value={selectedUserId ?? "all"}
+                  onValueChange={(val) =>
+                    setSelectedUserId(val === "all" ? null : val)
+                  }
+                >
+                  <SelectTrigger
+                    data-ocid="modules.user_select"
+                    className="w-[220px] font-body text-sm h-8"
+                    style={{ borderColor: "oklch(var(--border))" }}
+                  >
+                    <SelectValue placeholder="All Modules" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all" className="font-body text-sm">
+                      All Modules
+                    </SelectItem>
+                    {users.map((user) => (
+                      <SelectItem
+                        key={user.id}
+                        value={user.id}
+                        className="font-body text-sm"
+                      >
+                        {user.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {selectedUser && (
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      className="gap-1.5 font-body font-medium text-xs h-7 px-3"
+                      style={{
+                        background: "oklch(0.92 0.04 255)",
+                        color: "oklch(0.28 0.065 255)",
+                        border: "1px solid oklch(0.75 0.08 255 / 50%)",
+                      }}
+                    >
+                      <UserCheck className="w-3 h-3" />
+                      Viewing as: {selectedUser.name}
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSelectedUserId(null)}
+                      data-ocid="modules.clear_user_button"
+                      className="h-7 w-7 p-0 rounded-full"
+                      style={{ color: "oklch(var(--muted-foreground))" }}
+                      title="Clear trainee filter"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+
               {/* Modules grid */}
-              {modules.length === 0 ? (
+              {displayedModules.length === 0 ? (
                 <div
                   data-ocid="modules.empty_state"
                   className="py-20 text-center rounded-lg border"
@@ -430,13 +576,17 @@ export default function App() {
                     className="font-display font-semibold text-lg"
                     style={{ color: "oklch(var(--foreground))" }}
                   >
-                    No training modules yet
+                    {selectedUser
+                      ? `No modules assigned to ${selectedUser.name}`
+                      : "No training modules yet"}
                   </h3>
                   <p
                     className="text-sm font-body mt-1"
                     style={{ color: "oklch(var(--muted-foreground))" }}
                   >
-                    Visit the Admin panel to create your first training module.
+                    {selectedUser
+                      ? "Open the Admin panel → Users → Profile to assign modules."
+                      : "Visit the Admin panel to create your first training module."}
                   </p>
                 </div>
               ) : (
@@ -444,11 +594,14 @@ export default function App() {
                   className="grid grid-cols-1 md:grid-cols-2 gap-4"
                   data-ocid="modules.list"
                 >
-                  {modules.map((module, idx) => (
+                  {displayedModules.map((module, idx) => (
                     <ModuleCard
                       key={module.id}
                       module={module}
-                      completion={getCompletionForModule(module.id)}
+                      completion={getCompletionForModule(
+                        module.id,
+                        selectedUserId ?? undefined,
+                      )}
                       index={idx + 1}
                       onView={() => setSelectedModule(module)}
                     />
@@ -456,14 +609,34 @@ export default function App() {
                 </div>
               )}
             </div>
+          ) : currentView === "admin" &&
+            adminSubView === "module-viewer" &&
+            adminViewingModule ? (
+            /* ── Admin Module Viewer (read-only, no sign-off) ── */
+            <ModuleViewer
+              module={adminViewingModule}
+              completion={getCompletionForModule(
+                adminViewingModule.id,
+                undefined,
+              )}
+              adminMode={true}
+              onBack={handleAdminBackFromModule}
+              onComplete={() => {}}
+            />
           ) : (
             /* ── Admin Panel ── */
             <AdminPanel
               modules={modules}
               completions={completions}
+              users={users}
               onCreate={createModule}
               onUpdate={updateModule}
               onDelete={deleteModule}
+              onView={handleAdminViewModule}
+              onCreateUser={createUser}
+              onDeleteUser={deleteUser}
+              onAssignModules={assignModulesToUser}
+              getAssignedModuleIds={getAssignedModuleIdsForUser}
             />
           )}
         </main>

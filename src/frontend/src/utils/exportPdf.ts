@@ -1,5 +1,33 @@
 import type { CompletionRecord, TrainingModule } from "@/hooks/useTrainingData";
-import { jsPDF } from "jspdf";
+
+// jsPDF is loaded from CDN at runtime to avoid a missing npm package.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type JsPDFInstance = any;
+
+async function loadJsPDF(): Promise<{ new (opts: object): JsPDFInstance }> {
+  // Try CDN load
+  return new Promise((resolve, reject) => {
+    if ((window as unknown as Record<string, unknown>).jspdf) {
+      resolve(
+        (window as unknown as Record<string, unknown>).jspdf as JsPDFInstance,
+      );
+      return;
+    }
+    const script = document.createElement("script");
+    script.src =
+      "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+    script.onload = () => {
+      const w = window as unknown as Record<string, unknown>;
+      if (w.jspdf) {
+        resolve((w.jspdf as Record<string, unknown>).jsPDF as JsPDFInstance);
+      } else {
+        reject(new Error("jsPDF not found on window after script load"));
+      }
+    };
+    script.onerror = () => reject(new Error("Failed to load jsPDF from CDN"));
+    document.head.appendChild(script);
+  });
+}
 
 /**
  * Generates and downloads a professional PDF completion certificate
@@ -9,7 +37,12 @@ export async function exportCompletionPdf(
   module: TrainingModule,
   completion: CompletionRecord,
 ): Promise<void> {
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const JsPDF = await loadJsPDF();
+  const doc: JsPDFInstance = new JsPDF({
+    orientation: "portrait",
+    unit: "mm",
+    format: "a4",
+  });
 
   const pageW = 210;
   const pageH = 297;

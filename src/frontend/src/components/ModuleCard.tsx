@@ -6,7 +6,6 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronRight,
-  Clock,
   FileText,
   Link2,
 } from "lucide-react";
@@ -94,22 +93,6 @@ export default function ModuleCard({
               </div>
             </div>
           </div>
-
-          {/* Status badge */}
-          {isCompleted ? (
-            <Badge className="bg-success-bg text-success border border-success shrink-0 font-semibold gap-1">
-              <CheckCircle2 className="w-3 h-3" />
-              Completed
-            </Badge>
-          ) : (
-            <Badge
-              variant="outline"
-              className="bg-warning-bg text-warning-foreground border-warning shrink-0 font-semibold gap-1"
-            >
-              <Clock className="w-3 h-3" />
-              Pending
-            </Badge>
-          )}
         </div>
       </CardHeader>
 

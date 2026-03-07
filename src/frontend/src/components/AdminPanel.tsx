@@ -1,3 +1,4 @@
+import UsersPanel from "@/components/UsersPanel";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,20 +29,26 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+// Note: modules table uses native HTML elements for better layout control
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import type { CompletionRecord, TrainingModule } from "@/hooks/useTrainingData";
+import type {
+  AppUser,
+  CompletionRecord,
+  TrainingModule,
+} from "@/hooks/useTrainingData";
 import {
   CheckCircle2,
   ClipboardList,
-  Clock,
   ExternalLink,
+  Eye,
   FileText,
   LayoutGrid,
   Link2,
   Pencil,
   Plus,
   Trash2,
+  Users,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -55,12 +62,18 @@ type ModuleFormData = {
 type Props = {
   modules: TrainingModule[];
   completions: CompletionRecord[];
+  users: AppUser[];
   onCreate: (data: Omit<TrainingModule, "id" | "createdAt">) => void;
   onUpdate: (
     id: string,
     data: Partial<Omit<TrainingModule, "id" | "createdAt">>,
   ) => void;
   onDelete: (id: string) => void;
+  onView: (module: TrainingModule) => void;
+  onCreateUser: (data: Omit<AppUser, "id" | "createdAt">) => void;
+  onDeleteUser: (id: string) => void;
+  onAssignModules: (userId: string, moduleIds: string[]) => void;
+  getAssignedModuleIds: (userId: string) => string[];
 };
 
 const EMPTY_FORM: ModuleFormData = {
@@ -72,9 +85,15 @@ const EMPTY_FORM: ModuleFormData = {
 export default function AdminPanel({
   modules,
   completions,
+  users,
   onCreate,
   onUpdate,
   onDelete,
+  onView,
+  onCreateUser,
+  onDeleteUser,
+  onAssignModules,
+  getAssignedModuleIds,
 }: Props) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingModule, setEditingModule] = useState<TrainingModule | null>(
@@ -141,9 +160,6 @@ export default function AdminPanel({
   const getModuleTitle = (moduleId: string) =>
     modules.find((m) => m.id === moduleId)?.title ?? "Unknown Module";
 
-  const getCompletionForModule = (moduleId: string) =>
-    completions.find((c) => c.moduleId === moduleId);
-
   return (
     <div className="animate-fade-in">
       {/* Page header */}
@@ -183,12 +199,20 @@ export default function AdminPanel({
             <ClipboardList className="w-4 h-4" />
             Completion Records
           </TabsTrigger>
+          <TabsTrigger
+            value="users"
+            data-ocid="admin.users.tab"
+            className="gap-2 font-display font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+          >
+            <Users className="w-4 h-4" />
+            Users
+          </TabsTrigger>
         </TabsList>
 
         {/* ── Modules Tab ── */}
         <TabsContent value="modules">
           <div
-            className="rounded-lg overflow-hidden"
+            className="rounded-lg"
             style={{
               border: "1.5px solid oklch(var(--border))",
               background: "oklch(var(--card))",
@@ -250,96 +274,100 @@ export default function AdminPanel({
                 </p>
               </div>
             ) : (
-              <Table data-ocid="admin.modules.list">
-                <TableHeader>
-                  <TableRow style={{ background: "oklch(0.975 0.006 240)" }}>
-                    <TableHead className="font-display font-semibold text-xs uppercase tracking-wider w-[35%]">
-                      Title
-                    </TableHead>
-                    <TableHead className="font-display font-semibold text-xs uppercase tracking-wider hidden md:table-cell">
-                      Description
-                    </TableHead>
-                    <TableHead className="font-display font-semibold text-xs uppercase tracking-wider w-[110px]">
-                      Status
-                    </TableHead>
-                    <TableHead className="font-display font-semibold text-xs uppercase tracking-wider w-[120px] text-right">
-                      Actions
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {modules.map((module, idx) => {
-                    const completion = getCompletionForModule(module.id);
-                    return (
-                      <TableRow
-                        key={module.id}
-                        data-ocid={`admin.modules.row.${idx + 1}`}
-                        className="hover:bg-secondary/40 transition-colors"
-                      >
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <FileText
-                              className="w-4 h-4 shrink-0"
-                              style={{ color: "oklch(var(--primary))" }}
-                            />
-                            <span className="font-display font-semibold text-sm truncate">
-                              {module.title}
+              <div className="w-full overflow-x-auto">
+                <table
+                  className="w-full table-fixed"
+                  data-ocid="admin.modules.list"
+                  style={{ minWidth: "600px" }}
+                >
+                  <thead>
+                    <tr
+                      style={{
+                        background: "oklch(0.975 0.006 240)",
+                        borderBottom: "1px solid oklch(var(--border))",
+                      }}
+                    >
+                      <th className="font-display font-semibold text-xs uppercase tracking-wider text-left px-4 py-3 w-[40%]">
+                        Title
+                      </th>
+                      <th className="font-display font-semibold text-xs uppercase tracking-wider text-left px-4 py-3 hidden md:table-cell">
+                        Description
+                      </th>
+                      <th className="font-display font-semibold text-xs uppercase tracking-wider text-left px-4 py-3 w-[120px]">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {modules.map((module, idx) => {
+                      return (
+                        <tr
+                          key={module.id}
+                          data-ocid={`admin.modules.row.${idx + 1}`}
+                          className="hover:bg-secondary/40 transition-colors border-b last:border-b-0"
+                          style={{ borderColor: "oklch(var(--border))" }}
+                        >
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <FileText
+                                className="w-4 h-4 shrink-0"
+                                style={{ color: "oklch(var(--primary))" }}
+                              />
+                              <span className="font-display font-semibold text-sm truncate">
+                                {module.title}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 hidden md:table-cell">
+                            <span
+                              className="text-sm font-body line-clamp-1"
+                              style={{
+                                color: "oklch(var(--muted-foreground))",
+                              }}
+                            >
+                              {module.description}
                             </span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="hidden md:table-cell">
-                          <span
-                            className="text-sm font-body line-clamp-1"
-                            style={{ color: "oklch(var(--muted-foreground))" }}
-                          >
-                            {module.description}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          {completion ? (
-                            <Badge className="bg-success-bg text-success border border-success font-semibold gap-1 text-xs whitespace-nowrap">
-                              <CheckCircle2 className="w-3 h-3" />
-                              Completed
-                            </Badge>
-                          ) : (
-                            <Badge
-                              variant="outline"
-                              className="bg-warning-bg text-warning-foreground border-warning font-semibold gap-1 text-xs whitespace-nowrap"
-                            >
-                              <Clock className="w-3 h-3" />
-                              Pending
-                            </Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1.5 justify-end">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => openEdit(module)}
-                              data-ocid={`admin.module.edit_button.${idx + 1}`}
-                              className="h-7 w-7 p-0"
-                              title="Edit module"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setDeleteTarget(module)}
-                              data-ocid={`admin.module.delete_button.${idx + 1}`}
-                              className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-                              title="Delete module"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => onView(module)}
+                                data-ocid={`admin.module.view_button.${idx + 1}`}
+                                className="h-8 w-8 p-0 shrink-0"
+                                title="View module"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => openEdit(module)}
+                                data-ocid={`admin.module.edit_button.${idx + 1}`}
+                                className="h-8 w-8 p-0 shrink-0"
+                                title="Edit module"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setDeleteTarget(module)}
+                                data-ocid={`admin.module.delete_button.${idx + 1}`}
+                                className="h-8 w-8 p-0 shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                title="Delete module"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </TabsContent>
@@ -480,6 +508,19 @@ export default function AdminPanel({
               </Table>
             )}
           </div>
+        </TabsContent>
+
+        {/* ── Users Tab ── */}
+        <TabsContent value="users">
+          <UsersPanel
+            users={users}
+            modules={modules}
+            completions={completions}
+            getAssignedModuleIds={getAssignedModuleIds}
+            onCreate={onCreateUser}
+            onDelete={onDeleteUser}
+            onAssign={onAssignModules}
+          />
         </TabsContent>
       </Tabs>
 
