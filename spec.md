@@ -1,29 +1,33 @@
 # Training Manager
 
 ## Current State
-The app has a ModuleViewer component that displays a training module with an embedded Google Doc and a sign-off section. When completed, it shows the user's name, initials, completion date, and a signature image. Completion data (userName, initials, signatureData, completedAt) is stored in localStorage via the `useTrainingData` hook.
+- Training modules are stored in localStorage and displayed in a grid.
+- Users (trainees) can be created, assigned modules, and the admin can complete a training on behalf of a user by selecting them from the "View as trainee" dropdown.
+- Module viewing and sign-off is done in-app only -- there is no way to share a direct link to a specific training for a specific user.
+- All data is ephemeral per-browser (localStorage).
 
 ## Requested Changes (Diff)
 
 ### Add
-- A "Download PDF" button that appears in the completed state of ModuleViewer (after sign-off is complete)
-- A `usePdfExport` hook or utility function that uses the `jspdf` and `html2canvas` libraries to generate a PDF
-- The PDF should include:
-  - Module title and description
-  - A "Completion Sign-Off" section with the user's name, initials, date completed
-  - The signature image (from base64 signatureData)
-  - A "Training Completed" watermark/stamp style header
-  - Company/platform branding (Training Manager)
+- **Shareable training link generation**: Each assigned module on the user profile or the trainee view generates a unique URL containing `?moduleId=<id>&userId=<id>`.
+- **Share button on ModuleCard**: When a user is selected in "View as trainee" mode, each ModuleCard gets a "Copy Link" button that copies the direct URL to clipboard.
+- **Share buttons in UserProfileModal**: Each assigned module row shows a "Copy Link" icon button to copy the direct sign-off link for that user+module combo.
+- **Deep-link handling in App.tsx**: On mount, read `moduleId` and `userId` from URL search params. If both are present and valid, auto-select the user and open the module viewer directly (bypassing the home screen).
+- **Landing state for shared links**: When arriving via a shared link, display a clear "Signing as [Name]" context banner so the receiving manager knows whose training they are completing.
+- **Toast confirmation** when a link is copied.
 
 ### Modify
-- `ModuleViewer.tsx`: Add a "Download PDF" button in the completed state section, below the signature preview
-- `package.json` / frontend dependencies: Add `jspdf` and `html2canvas`
+- `App.tsx`: Add `useEffect` to parse URL params on mount and set `selectedUserId` + `selectedModule` accordingly. Also clear URL params after loading so the URL stays clean.
+- `ModuleCard.tsx`: Accept optional `shareUrl` prop; if provided, show a "Copy Link" icon button that does not trigger `onView`.
+- `UserProfileModal.tsx`: Add a share/copy-link icon button next to each assigned module row.
 
 ### Remove
-- Nothing
+- Nothing removed.
 
 ## Implementation Plan
-1. Install `jspdf` and `html2canvas` packages in the frontend
-2. Create a `usePdfExport.ts` utility/hook that accepts module + completion data and generates a formatted PDF certificate-style document
-3. In `ModuleViewer.tsx`, import and wire the PDF export utility, add a "Download PDF" button (with Download icon) in the completed state, below the existing signature preview block
-4. The button should trigger PDF generation and auto-download the file named `<module-title>-completion.pdf`
+1. In `App.tsx`, on mount parse `window.location.search` for `moduleId` and `userId`. If both match valid data, call `setSelectedUserId` and `setSelectedModule` to jump directly to the sign-off view. Clear the params from the URL via `history.replaceState`.
+2. Add a `buildShareUrl(moduleId, userId)` utility in `utils/shareLinks.ts` that constructs `window.location.origin + window.location.pathname + ?moduleId=...&userId=...`.
+3. Modify `ModuleCard` to accept an optional `onCopyLink?: () => void` prop. When provided, render a small "Copy Link" button that calls `onCopyLink` and shows a toast.
+4. In `App.tsx` modules list, when `selectedUserId` is set, pass `onCopyLink` to each `ModuleCard` that copies the share URL.
+5. In `UserProfileModal.tsx`, add a copy-link icon button per module row (only for modules that are checked/assigned). Clicking it calls `navigator.clipboard.writeText(buildShareUrl(module.id, userId))` and shows a toast.
+6. Ensure the `ModuleViewer` "Signing as" banner already works (it does from a previous version) -- no changes needed there.

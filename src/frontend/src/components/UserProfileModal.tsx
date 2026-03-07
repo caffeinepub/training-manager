@@ -12,11 +12,18 @@ import {
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type {
   AppUser,
   CompletionRecord,
   TrainingModule,
 } from "@/hooks/useTrainingData";
+import { buildShareUrl } from "@/utils/shareLinks";
 import {
   BookOpen,
   Briefcase,
@@ -25,6 +32,7 @@ import {
   Clock,
   FileText,
   Loader2,
+  Share2,
   User,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -303,6 +311,40 @@ export default function UserProfileModal({
                           <Clock className="w-2.5 h-2.5" />
                           Pending
                         </Badge>
+                      )}
+                      {checked && (
+                        <TooltipProvider delayDuration={300}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                data-ocid="admin.user_profile.copy_link_button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  navigator.clipboard.writeText(
+                                    buildShareUrl(module.id, user.id),
+                                  );
+                                  toast.success("Training link copied!");
+                                }}
+                                className="shrink-0 h-6 w-6 p-0 rounded"
+                                style={{
+                                  color: "oklch(var(--muted-foreground))",
+                                }}
+                              >
+                                <Share2 className="w-3.5 h-3.5" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent
+                              side="top"
+                              className="font-body text-xs"
+                            >
+                              Copy training link
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       )}
                     </Label>
                   );

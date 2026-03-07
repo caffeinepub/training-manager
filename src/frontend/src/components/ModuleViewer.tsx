@@ -15,6 +15,7 @@ import {
   ExternalLink,
   FileText,
   Loader2,
+  PenLine,
   ShieldCheck,
   UserCheck,
 } from "lucide-react";
@@ -132,6 +133,8 @@ type InitialFieldProps = {
   onChange: (v: string) => void;
   disabled?: boolean;
   "data-ocid"?: string;
+  onAutoFill?: () => void;
+  "data-ocid-autofill"?: string;
 };
 
 function InitialField({
@@ -141,6 +144,8 @@ function InitialField({
   onChange,
   disabled,
   "data-ocid": dataOcid,
+  onAutoFill,
+  "data-ocid-autofill": dataOcidAutofill,
 }: InitialFieldProps) {
   return (
     <div
@@ -169,20 +174,38 @@ function InitialField({
               {value || "_______"}
             </span>
           ) : (
-            <Input
-              id={id}
-              type="text"
-              value={value}
-              onChange={(e) =>
-                onChange(e.target.value.slice(0, 5).toUpperCase())
-              }
-              placeholder="_____"
-              data-ocid={dataOcid}
-              className="w-20 text-center font-body font-bold tracking-widest text-sm h-8"
-              maxLength={5}
-              autoComplete="off"
-              style={{ textTransform: "uppercase" }}
-            />
+            <>
+              <Input
+                id={id}
+                type="text"
+                value={value}
+                onChange={(e) =>
+                  onChange(e.target.value.slice(0, 5).toUpperCase())
+                }
+                placeholder="_____"
+                data-ocid={dataOcid}
+                className="w-20 text-center font-body font-bold tracking-widest text-sm h-8"
+                maxLength={5}
+                autoComplete="off"
+                style={{ textTransform: "uppercase" }}
+              />
+              {onAutoFill && (
+                <button
+                  type="button"
+                  onClick={onAutoFill}
+                  data-ocid={dataOcidAutofill}
+                  title="Auto-fill initials"
+                  className="inline-flex items-center gap-1 text-xs font-body font-medium px-2 py-1 rounded border transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-1"
+                  style={{
+                    borderColor: "oklch(0.75 0.04 255)",
+                    color: "oklch(var(--primary))",
+                  }}
+                >
+                  <PenLine className="w-3 h-3" />
+                  Auto-fill
+                </button>
+              )}
+            </>
           )}
         </div>
         <span
@@ -206,8 +229,7 @@ export default function ModuleViewer({
 }: Props) {
   const [userName, setUserName] = useState(selectedUser?.name ?? "");
   const [managerName, setManagerName] = useState("");
-  const [hasTeamSig, setHasTeamSig] = useState(false);
-  const [hasManagerSig, setHasManagerSig] = useState(false);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
 
@@ -226,12 +248,12 @@ export default function ModuleViewer({
     independentExecution: false,
   });
 
-  // Four initials
+  // Four initials — start empty, user must click Auto-fill or type manually
   const [ackInitials, setAckInitials] = useState({
-    step1: selectedUser ? deriveInitials(selectedUser.name) : "",
-    step2: selectedUser ? deriveInitials(selectedUser.name) : "",
-    step3: selectedUser ? deriveInitials(selectedUser.name) : "",
-    step4: selectedUser ? deriveInitials(selectedUser.name) : "",
+    step1: "",
+    step2: "",
+    step3: "",
+    step4: "",
   });
 
   const teamSigRef = useRef<SignaturePadHandle>(null);
@@ -251,28 +273,7 @@ export default function ModuleViewer({
     }
   };
 
-  const trainingTypeSelected =
-    trainingType.policy || trainingType.sop || trainingType.operationalManual;
-  const releaseStepsSelected =
-    releaseSteps.readOutLoud ||
-    releaseSteps.demonstration ||
-    releaseSteps.rolePlaying ||
-    releaseSteps.independentExecution;
-  const allAckInitials =
-    ackInitials.step1.trim().length > 0 &&
-    ackInitials.step2.trim().length > 0 &&
-    ackInitials.step3.trim().length > 0 &&
-    ackInitials.step4.trim().length > 0;
-
-  const canSubmit =
-    userName.trim().length > 0 &&
-    managerName.trim().length > 0 &&
-    trainingTypeSelected &&
-    releaseStepsSelected &&
-    allAckInitials &&
-    hasTeamSig &&
-    hasManagerSig &&
-    !completion;
+  const canSubmit = userName.trim().length > 0 && !completion;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -280,15 +281,6 @@ export default function ModuleViewer({
 
     const teamSigData = teamSigRef.current?.getDataURL() ?? "";
     const managerSigData = managerSigRef.current?.getDataURL() ?? "";
-
-    if (!teamSigData) {
-      toast.error("Please draw the team member's signature.");
-      return;
-    }
-    if (!managerSigData) {
-      toast.error("Please draw the manager's signature.");
-      return;
-    }
 
     setIsSubmitting(true);
     await new Promise((r) => setTimeout(r, 600));
@@ -1044,22 +1036,52 @@ export default function ModuleViewer({
                       borderColor: "oklch(var(--border))",
                     }}
                   >
-                    <h3
-                      className="font-display font-bold text-base"
-                      style={{ color: "oklch(var(--foreground))" }}
-                    >
-                      Team Member Training Acknowledgement
-                    </h3>
-                    <p
-                      className="text-xs font-body mt-1"
-                      style={{ color: "oklch(var(--muted-foreground))" }}
-                    >
-                      Please read each statement below and initial each one. By
-                      doing so, you acknowledge that these steps have been
-                      completed and confirm your ability to perform the tasks as
-                      outlined in the training document specified above in the
-                      Information Section.
-                    </p>
+                    <div className="flex items-start justify-between gap-3 flex-wrap">
+                      <div className="flex-1 min-w-0">
+                        <h3
+                          className="font-display font-bold text-base"
+                          style={{ color: "oklch(var(--foreground))" }}
+                        >
+                          Team Member Training Acknowledgement
+                        </h3>
+                        <p
+                          className="text-xs font-body mt-1"
+                          style={{ color: "oklch(var(--muted-foreground))" }}
+                        >
+                          Please read each statement below and initial each one.
+                          By doing so, you acknowledge that these steps have
+                          been completed and confirm your ability to perform the
+                          tasks as outlined in the training document specified
+                          above in the Information Section.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        data-ocid="module.autofill_initials_button"
+                        onClick={() => {
+                          if (!userName.trim()) {
+                            toast.warning("Enter team member's name first.");
+                            return;
+                          }
+                          const initials = deriveInitials(userName);
+                          setAckInitials({
+                            step1: initials,
+                            step2: initials,
+                            step3: initials,
+                            step4: initials,
+                          });
+                        }}
+                        className="inline-flex items-center gap-1.5 text-xs font-body font-semibold px-3 py-1.5 rounded-md border transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-1 shrink-0 self-start"
+                        style={{
+                          borderColor: "oklch(0.7 0.06 255)",
+                          color: "oklch(var(--primary))",
+                          background: "oklch(0.96 0.01 240)",
+                        }}
+                      >
+                        <PenLine className="w-3.5 h-3.5" />
+                        Auto-fill all
+                      </button>
+                    </div>
                   </div>
                   <div className="px-5 bg-white">
                     <InitialField
@@ -1070,6 +1092,17 @@ export default function ModuleViewer({
                         setAckInitials((p) => ({ ...p, step1: v }))
                       }
                       data-ocid="module.ack_step1_input"
+                      onAutoFill={() => {
+                        if (!userName.trim()) {
+                          toast.warning("Enter team member's name first.");
+                          return;
+                        }
+                        setAckInitials((p) => ({
+                          ...p,
+                          step1: deriveInitials(userName),
+                        }));
+                      }}
+                      data-ocid-autofill="module.autofill_initial_button.1"
                     />
                     <InitialField
                       id="ack-step2"
@@ -1079,6 +1112,17 @@ export default function ModuleViewer({
                         setAckInitials((p) => ({ ...p, step2: v }))
                       }
                       data-ocid="module.ack_step2_input"
+                      onAutoFill={() => {
+                        if (!userName.trim()) {
+                          toast.warning("Enter team member's name first.");
+                          return;
+                        }
+                        setAckInitials((p) => ({
+                          ...p,
+                          step2: deriveInitials(userName),
+                        }));
+                      }}
+                      data-ocid-autofill="module.autofill_initial_button.2"
                     />
                     <InitialField
                       id="ack-step3"
@@ -1088,6 +1132,17 @@ export default function ModuleViewer({
                         setAckInitials((p) => ({ ...p, step3: v }))
                       }
                       data-ocid="module.ack_step3_input"
+                      onAutoFill={() => {
+                        if (!userName.trim()) {
+                          toast.warning("Enter team member's name first.");
+                          return;
+                        }
+                        setAckInitials((p) => ({
+                          ...p,
+                          step3: deriveInitials(userName),
+                        }));
+                      }}
+                      data-ocid-autofill="module.autofill_initial_button.3"
                     />
                     <InitialField
                       id="ack-step4"
@@ -1097,6 +1152,17 @@ export default function ModuleViewer({
                         setAckInitials((p) => ({ ...p, step4: v }))
                       }
                       data-ocid="module.ack_step4_input"
+                      onAutoFill={() => {
+                        if (!userName.trim()) {
+                          toast.warning("Enter team member's name first.");
+                          return;
+                        }
+                        setAckInitials((p) => ({
+                          ...p,
+                          step4: deriveInitials(userName),
+                        }));
+                      }}
+                      data-ocid-autofill="module.autofill_initial_button.4"
                     />
                   </div>
                 </div>
@@ -1169,7 +1235,6 @@ export default function ModuleViewer({
                         data-ocid="module.manager_name_input"
                         className="font-body"
                         autoComplete="off"
-                        required
                       />
                     </div>
                   </div>
@@ -1187,7 +1252,8 @@ export default function ModuleViewer({
                       </Label>
                       <SignaturePad
                         ref={teamSigRef}
-                        onChange={(has) => setHasTeamSig(has)}
+                        onChange={() => {}}
+                        name={userName}
                       />
                     </div>
 
@@ -1202,7 +1268,8 @@ export default function ModuleViewer({
                       </Label>
                       <SignaturePad
                         ref={managerSigRef}
-                        onChange={(has) => setHasManagerSig(has)}
+                        onChange={() => {}}
+                        name={managerName}
                       />
                     </div>
                   </div>
@@ -1215,7 +1282,7 @@ export default function ModuleViewer({
                       className="text-xs font-body self-center"
                       style={{ color: "oklch(var(--muted-foreground))" }}
                     >
-                      Complete all sections to submit.
+                      Enter team member's name to submit.
                     </p>
                   )}
                   <Button

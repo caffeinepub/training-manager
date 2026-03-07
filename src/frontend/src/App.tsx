@@ -13,6 +13,7 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { useTrainingData } from "@/hooks/useTrainingData";
 import type { AppUser, TrainingModule } from "@/hooks/useTrainingData";
+import { copyShareLink } from "@/utils/shareLinks";
 import {
   CheckCircle2,
   Clock,
@@ -23,7 +24,8 @@ import {
   UserCheck,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 type View = "modules" | "admin";
 type AdminSubView = "panel" | "module-viewer";
@@ -54,6 +56,26 @@ export default function App() {
     getAssignedModulesForUser,
     getAssignedModuleIdsForUser,
   } = useTrainingData();
+
+  // Deep-link: auto-open module + user from URL params (?moduleId=…&userId=…)
+  const deepLinkApplied = useRef(false);
+  useEffect(() => {
+    if (deepLinkApplied.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const moduleId = params.get("moduleId");
+    const userId = params.get("userId");
+    if (!moduleId || !userId) return;
+    if (modules.length === 0 || users.length === 0) return;
+    const module = modules.find((m) => m.id === moduleId);
+    const user = users.find((u) => u.id === userId);
+    if (module && user) {
+      deepLinkApplied.current = true;
+      setSelectedUserId(userId);
+      setSelectedModule(module);
+      setCurrentView("modules");
+      history.replaceState({}, "", window.location.pathname);
+    }
+  }, [modules, users]);
 
   // Filtered modules based on selected user
   const displayedModules = selectedUserId
@@ -604,6 +626,14 @@ export default function App() {
                       )}
                       index={idx + 1}
                       onView={() => setSelectedModule(module)}
+                      onCopyLink={
+                        selectedUserId
+                          ? () => {
+                              copyShareLink(module.id, selectedUserId);
+                              toast.success("Training link copied!");
+                            }
+                          : undefined
+                      }
                     />
                   ))}
                 </div>

@@ -1,6 +1,12 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { CompletionRecord, TrainingModule } from "@/hooks/useTrainingData";
 import {
   CalendarDays,
@@ -8,6 +14,7 @@ import {
   ChevronRight,
   FileText,
   Link2,
+  Share2,
 } from "lucide-react";
 
 type Props = {
@@ -15,6 +22,7 @@ type Props = {
   completion: CompletionRecord | undefined;
   index: number;
   onView: () => void;
+  onCopyLink?: () => void;
 };
 
 export default function ModuleCard({
@@ -22,6 +30,7 @@ export default function ModuleCard({
   completion,
   index,
   onView,
+  onCopyLink,
 }: Props) {
   const isCompleted = !!completion;
 
@@ -135,23 +144,73 @@ export default function ModuleCard({
               <span className="font-semibold">{completion.userName}</span> on{" "}
               {formattedDate(completion.completedAt)}
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              data-ocid={`modules.view_button.${index}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onView();
-              }}
-              className="text-xs font-body gap-1 h-7"
-              style={{ color: "oklch(0.5 0.08 145)" }}
-            >
-              View Record
-              <ChevronRight className="w-3.5 h-3.5" />
-            </Button>
+            <div className="flex items-center gap-1">
+              {onCopyLink && (
+                <TooltipProvider delayDuration={300}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        data-ocid={`modules.copy_link_button.${index}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onCopyLink();
+                        }}
+                        className="h-7 w-7 p-0 rounded-md"
+                        style={{ color: "oklch(var(--muted-foreground))" }}
+                      >
+                        <Share2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="font-body text-xs">
+                      Copy training link
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                data-ocid={`modules.view_button.${index}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onView();
+                }}
+                className="text-xs font-body gap-1 h-7"
+                style={{ color: "oklch(0.5 0.08 145)" }}
+              >
+                View Record
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Button>
+            </div>
           </div>
         ) : (
-          <div className="flex justify-end">
+          <div className="flex items-center justify-end gap-1">
+            {onCopyLink && (
+              <TooltipProvider delayDuration={300}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      data-ocid={`modules.copy_link_button.${index}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onCopyLink();
+                      }}
+                      className="h-8 w-8 p-0 rounded-md"
+                      style={{ color: "oklch(var(--muted-foreground))" }}
+                    >
+                      <Share2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="font-body text-xs">
+                    Copy training link
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
             <Button
               size="sm"
               data-ocid={`modules.view_button.${index}`}
