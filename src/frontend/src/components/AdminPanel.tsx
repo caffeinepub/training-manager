@@ -617,17 +617,31 @@ export default function AdminPanel({
                         </span>
                       </TableCell>
                       <TableCell>
-                        <img
-                          src={rec.signatureData}
-                          alt={`Signature of ${rec.userName}`}
-                          className="h-8 w-auto max-w-[100px] object-contain"
-                          style={{
-                            border: "1px solid oklch(var(--border))",
-                            borderRadius: "4px",
-                            padding: "2px",
-                            background: "white",
-                          }}
-                        />
+                        {rec.signatureData.startsWith("data:") ? (
+                          <img
+                            src={rec.signatureData}
+                            alt={`Signature of ${rec.userName}`}
+                            className="h-8 w-auto max-w-[100px] object-contain"
+                            style={{
+                              border: "1px solid oklch(var(--border))",
+                              borderRadius: "4px",
+                              padding: "2px",
+                              background: "white",
+                            }}
+                          />
+                        ) : (
+                          <span
+                            style={{
+                              fontFamily: "Georgia, serif",
+                              fontStyle: "italic",
+                              fontSize: "1.1rem",
+                              color: "oklch(var(--foreground))",
+                              letterSpacing: "0.03em",
+                            }}
+                          >
+                            {rec.signatureData}
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1.5">

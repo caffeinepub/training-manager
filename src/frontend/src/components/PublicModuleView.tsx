@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useActor } from "@/hooks/useActor";
+import { textToSignatureImage } from "@/utils/signatureUtils";
 import {
   CheckCircle2,
   ExternalLink,
@@ -112,11 +113,14 @@ export default function PublicModuleView({ moduleId }: Props) {
     if (!actor || !module) return;
     setIsSubmitting(true);
     try {
+      const sigImage = textToSignatureImage(
+        signature.trim() || userName.trim(),
+      );
       await actor.submitCompletion(
         module.id,
         userName.trim(),
         initials,
-        signature,
+        sigImage,
       );
       setIsSuccess(true);
     } catch (err) {
