@@ -1,4 +1,3 @@
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
@@ -10,9 +9,9 @@ import {
 import type { CompletionRecord, TrainingModule } from "@/hooks/useTrainingData";
 import {
   CalendarDays,
-  CheckCircle2,
   ChevronRight,
   FileText,
+  Globe,
   Link2,
   Share2,
 } from "lucide-react";
@@ -23,7 +22,45 @@ type Props = {
   index: number;
   onView: () => void;
   onCopyLink?: () => void;
+  onCopyPublicLink?: () => void;
 };
+
+function IconButton({
+  onClick,
+  ocid,
+  tooltip,
+  children,
+  size = "sm",
+}: {
+  onClick: (e: React.MouseEvent) => void;
+  ocid: string;
+  tooltip: string;
+  children: React.ReactNode;
+  size?: "sm" | "md";
+}) {
+  const dim = size === "sm" ? "h-7 w-7" : "h-8 w-8";
+  return (
+    <TooltipProvider delayDuration={300}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            data-ocid={ocid}
+            onClick={onClick}
+            className={`${dim} p-0 rounded-md`}
+            style={{ color: "oklch(var(--muted-foreground))" }}
+          >
+            {children}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="font-body text-xs">
+          {tooltip}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
 
 export default function ModuleCard({
   module,
@@ -31,6 +68,7 @@ export default function ModuleCard({
   index,
   onView,
   onCopyLink,
+  onCopyPublicLink,
 }: Props) {
   const isCompleted = !!completion;
 
@@ -88,6 +126,18 @@ export default function ModuleCard({
               >
                 {module.title}
               </h3>
+              {module.category && (
+                <span
+                  className="inline-block mt-1 mb-0.5 text-xs font-display font-semibold px-2 py-0.5 rounded-full"
+                  style={{
+                    background: "oklch(0.92 0.04 280)",
+                    color: "oklch(0.35 0.12 280)",
+                    border: "1px solid oklch(0.78 0.08 280 / 40%)",
+                  }}
+                >
+                  {module.category}
+                </span>
+              )}
               <div className="flex items-center gap-1.5 mt-0.5">
                 <CalendarDays
                   className="w-3 h-3"
@@ -145,29 +195,31 @@ export default function ModuleCard({
               {formattedDate(completion.completedAt)}
             </div>
             <div className="flex items-center gap-1">
+              {onCopyPublicLink && (
+                <IconButton
+                  ocid={`modules.copy_public_link_button.${index}`}
+                  tooltip="Copy public link"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCopyPublicLink();
+                  }}
+                  size="sm"
+                >
+                  <Globe className="w-3.5 h-3.5" />
+                </IconButton>
+              )}
               {onCopyLink && (
-                <TooltipProvider delayDuration={300}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        data-ocid={`modules.copy_link_button.${index}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onCopyLink();
-                        }}
-                        className="h-7 w-7 p-0 rounded-md"
-                        style={{ color: "oklch(var(--muted-foreground))" }}
-                      >
-                        <Share2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="font-body text-xs">
-                      Copy training link
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
+                <IconButton
+                  ocid={`modules.copy_link_button.${index}`}
+                  tooltip="Copy training link"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCopyLink();
+                  }}
+                  size="sm"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                </IconButton>
               )}
               <Button
                 variant="ghost"
@@ -187,29 +239,31 @@ export default function ModuleCard({
           </div>
         ) : (
           <div className="flex items-center justify-end gap-1">
+            {onCopyPublicLink && (
+              <IconButton
+                ocid={`modules.copy_public_link_button.${index}`}
+                tooltip="Copy public link"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCopyPublicLink();
+                }}
+                size="md"
+              >
+                <Globe className="w-3.5 h-3.5" />
+              </IconButton>
+            )}
             {onCopyLink && (
-              <TooltipProvider delayDuration={300}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      data-ocid={`modules.copy_link_button.${index}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onCopyLink();
-                      }}
-                      className="h-8 w-8 p-0 rounded-md"
-                      style={{ color: "oklch(var(--muted-foreground))" }}
-                    >
-                      <Share2 className="w-3.5 h-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="font-body text-xs">
-                    Copy training link
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              <IconButton
+                ocid={`modules.copy_link_button.${index}`}
+                tooltip="Copy training link"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCopyLink();
+                }}
+                size="md"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+              </IconButton>
             )}
             <Button
               size="sm"

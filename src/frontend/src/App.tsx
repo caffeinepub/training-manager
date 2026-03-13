@@ -1,8 +1,12 @@
 import AdminPanel from "@/components/AdminPanel";
+import DashboardView from "@/components/DashboardView";
+import LoginPage from "@/components/LoginPage";
 import ModuleCard from "@/components/ModuleCard";
 import ModuleViewer from "@/components/ModuleViewer";
+import PublicModuleView from "@/components/PublicModuleView";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -12,14 +16,18 @@ import {
 } from "@/components/ui/select";
 import { Toaster } from "@/components/ui/sonner";
 import { useTrainingData } from "@/hooks/useTrainingData";
-import type { AppUser, TrainingModule } from "@/hooks/useTrainingData";
-import { copyShareLink } from "@/utils/shareLinks";
+import type { TrainingModule } from "@/hooks/useTrainingData";
+import { copyPublicModuleLink, copyShareLink } from "@/utils/shareLinks";
 import {
+  BarChart2,
   CheckCircle2,
   Clock,
   GraduationCap,
   LayoutDashboard,
+  Loader2,
+  LogOut,
   Menu,
+  Search,
   ShieldCheck,
   UserCheck,
   X,
@@ -27,7 +35,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-type View = "modules" | "admin";
+type View = "modules" | "dashboard" | "admin";
 type AdminSubView = "panel" | "module-viewer";
 
 export default function App() {
@@ -45,6 +53,11 @@ export default function App() {
     modules,
     completions,
     users,
+    assignments,
+    categories,
+    currentSession,
+    currentUserPermission,
+    isLoading,
     createModule,
     updateModule,
     deleteModule,
@@ -52,10 +65,19 @@ export default function App() {
     getCompletionForModule,
     createUser,
     deleteUser,
+    updateUserPermission,
+    approveUser,
+    rejectUser,
+    addCategory,
     assignModulesToUser,
     getAssignedModulesForUser,
     getAssignedModuleIdsForUser,
+    loginWithGoogle,
+    logout,
   } = useTrainingData();
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   // Deep-link: auto-open module + user from URL params (?moduleId=…&userId=…)
   const deepLinkApplied = useRef(false);
@@ -77,18 +99,36 @@ export default function App() {
     }
   }, [modules, users]);
 
-  // Filtered modules based on selected user
-  const displayedModules = selectedUserId
-    ? getAssignedModulesForUser(selectedUserId)
+  const isViewer = currentUserPermission === "viewer";
+
+  // For viewers, always show their own assigned modules
+  const effectiveUserId = isViewer
+    ? (currentSession?.userId ?? null)
+    : selectedUserId;
+
+  // Filtered modules based on selected user, search query, and category
+  const baseModules = effectiveUserId
+    ? getAssignedModulesForUser(effectiveUserId)
     : modules;
 
-  const selectedUser = users.find((u) => u.id === selectedUserId) ?? null;
+  const displayedModules = baseModules.filter((m) => {
+    const q = searchQuery.toLowerCase().trim();
+    const matchesSearch =
+      !q ||
+      m.title.toLowerCase().includes(q) ||
+      m.description.toLowerCase().includes(q);
+    const matchesCategory =
+      !selectedCategory || m.category === selectedCategory;
+    return matchesSearch && matchesCategory;
+  });
+
+  const selectedUser = users.find((u) => u.id === effectiveUserId) ?? null;
 
   const completedCount = displayedModules.filter((m) =>
     completions.some(
       (c) =>
         c.moduleId === m.id &&
-        (selectedUserId ? c.userId === selectedUserId : true),
+        (effectiveUserId ? c.userId === effectiveUserId : true),
     ),
   ).length;
 
@@ -98,19 +138,30 @@ export default function App() {
     (m) => !completions.some((c) => c.moduleId === m.id),
   ).length;
 
-  const navItems = [
+  const allNavItems = [
     {
       id: "modules" as View,
       label: "Training Modules",
       icon: LayoutDashboard,
       badge: totalPending > 0 ? String(totalPending) : undefined,
+      adminOnly: false,
+    },
+    {
+      id: "dashboard" as View,
+      label: "Dashboard",
+      icon: BarChart2,
+      adminOnly: true,
     },
     {
       id: "admin" as View,
       label: "Admin",
       icon: ShieldCheck,
+      adminOnly: true,
     },
   ];
+  const navItems = isViewer
+    ? allNavItems.filter((i) => !i.adminOnly)
+    : allNavItems;
 
   const handleNavigate = (view: View) => {
     setCurrentView(view);
@@ -129,6 +180,139 @@ export default function App() {
     setAdminViewingModule(null);
     setAdminSubView("panel");
   };
+
+  // Public module link - no login required
+  const publicModuleId = new URLSearchParams(window.location.search).get(
+    "publicModule",
+  );
+  if (publicModuleId) {
+    return <PublicModuleView moduleId={publicModuleId} />;
+  }
+
+  // Show login gate if not authenticated (after loading completes)
+  if (!isLoading && !currentSession) {
+    return (
+      <>
+        <LoginPage
+          onLogin={(name, email) => {
+            loginWithGoogle(name, email);
+            toast.success(`Welcome, ${name}! You're now signed in.`);
+          }}
+        />
+        <Toaster richColors position="top-right" />
+      </>
+    );
+  }
+
+  // Permission-based screens (after login)
+  if (!isLoading && currentSession && currentUserPermission === "pending") {
+    return (
+      <>
+        <div
+          className="min-h-screen flex items-center justify-center"
+          style={{ background: "oklch(var(--background))" }}
+        >
+          <div className="max-w-md w-full mx-4 text-center">
+            <div
+              className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6"
+              style={{ background: "oklch(0.92 0.05 255)" }}
+            >
+              <Clock
+                className="w-8 h-8"
+                style={{ color: "oklch(0.45 0.12 255)" }}
+              />
+            </div>
+            <h1
+              className="text-2xl font-display font-bold mb-2"
+              style={{ color: "oklch(var(--foreground))" }}
+            >
+              Awaiting Approval
+            </h1>
+            <p
+              className="font-body text-sm mb-1"
+              style={{ color: "oklch(var(--muted-foreground))" }}
+            >
+              Hello,{" "}
+              <span
+                className="font-semibold"
+                style={{ color: "oklch(var(--foreground))" }}
+              >
+                {currentSession.name}
+              </span>
+              .
+            </p>
+            <p
+              className="font-body text-sm mb-8"
+              style={{ color: "oklch(var(--muted-foreground))" }}
+            >
+              Your account is pending review by an administrator. You'll have
+              access once approved.
+            </p>
+            <Button
+              data-ocid="pending.logout_button"
+              variant="outline"
+              onClick={() => {
+                logout();
+              }}
+              className="gap-2 font-body"
+            >
+              <LogOut className="w-4 h-4" />
+              Sign Out
+            </Button>
+          </div>
+        </div>
+        <Toaster richColors position="top-right" />
+      </>
+    );
+  }
+
+  if (!isLoading && currentSession && currentUserPermission === "rejected") {
+    return (
+      <>
+        <div
+          className="min-h-screen flex items-center justify-center"
+          style={{ background: "oklch(var(--background))" }}
+        >
+          <div className="max-w-md w-full mx-4 text-center">
+            <div
+              className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6"
+              style={{ background: "oklch(0.94 0.05 15)" }}
+            >
+              <ShieldCheck
+                className="w-8 h-8"
+                style={{ color: "oklch(0.45 0.15 15)" }}
+              />
+            </div>
+            <h1
+              className="text-2xl font-display font-bold mb-2"
+              style={{ color: "oklch(var(--foreground))" }}
+            >
+              Access Denied
+            </h1>
+            <p
+              className="font-body text-sm mb-8"
+              style={{ color: "oklch(var(--muted-foreground))" }}
+            >
+              Your account request has been declined. Please contact your
+              administrator if you believe this is a mistake.
+            </p>
+            <Button
+              data-ocid="rejected.logout_button"
+              variant="outline"
+              onClick={() => {
+                logout();
+              }}
+              className="gap-2 font-body"
+            >
+              <LogOut className="w-4 h-4" />
+              Sign Out
+            </Button>
+          </div>
+        </div>
+        <Toaster richColors position="top-right" />
+      </>
+    );
+  }
 
   return (
     <div
@@ -302,40 +486,50 @@ export default function App() {
             className="px-4 py-4 border-t"
             style={{ borderColor: "oklch(var(--sidebar-border))" }}
           >
-            <div className="flex items-center gap-2.5">
+            {/* Always logged-in when sidebar is visible (login gate ensures this) */}
+            <div className="flex items-start gap-2.5">
               <div
                 className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 font-display font-bold text-sm"
                 style={{
-                  background: "oklch(0.55 0.12 255)",
-                  color: "oklch(0.95 0.01 240)",
+                  background: "#4285F4",
+                  color: "white",
                 }}
               >
-                A
+                {currentSession?.name
+                  .split(" ")
+                  .map((n) => n[0])
+                  .join("")
+                  .toUpperCase()
+                  .slice(0, 2) ?? "?"}
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p
                   className="text-sm font-body font-semibold truncate"
                   style={{ color: "oklch(var(--sidebar-foreground))" }}
                 >
-                  Admin User
+                  {currentSession?.name ?? ""}
                 </p>
                 <p
                   className="text-xs font-body truncate"
                   style={{ color: "oklch(0.65 0.025 240)" }}
+                  title={currentSession?.email}
                 >
-                  Administrator
+                  {currentSession?.email ?? ""}
                 </p>
               </div>
-              <Badge
-                className="ml-auto text-xs shrink-0"
-                style={{
-                  background: "oklch(0.55 0.12 255)",
-                  color: "oklch(0.95 0.01 240)",
-                  border: "none",
+              <button
+                type="button"
+                onClick={() => {
+                  logout();
+                  toast.success("Signed out successfully.");
                 }}
+                data-ocid="sidebar.logout_button"
+                title="Sign out"
+                className="shrink-0 p-1.5 rounded-md transition-colors hover:opacity-70"
+                style={{ color: "oklch(0.65 0.025 240)" }}
               >
-                Admin
-              </Badge>
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
         </aside>
@@ -379,7 +573,9 @@ export default function App() {
                   ? adminViewingModule.title
                   : currentView === "modules"
                     ? "Training Modules"
-                    : "Admin"}
+                    : currentView === "dashboard"
+                      ? "Dashboard"
+                      : "Admin"}
             </span>
           </div>
 
@@ -397,20 +593,86 @@ export default function App() {
 
         {/* Page content */}
         <main className="flex-1 px-4 lg:px-8 py-6 max-w-5xl w-full mx-auto">
-          {/* Module Viewer */}
-          {selectedModule ? (
+          {/* Loading state */}
+          {isLoading ? (
+            <div
+              className="flex flex-col items-center justify-center py-24 gap-4"
+              data-ocid="app.loading_state"
+            >
+              <div
+                className="w-14 h-14 rounded-xl flex items-center justify-center"
+                style={{ background: "oklch(var(--primary) / 0.1)" }}
+              >
+                <Loader2
+                  className="w-7 h-7 animate-spin"
+                  style={{ color: "oklch(var(--primary))" }}
+                />
+              </div>
+              <div className="text-center">
+                <p
+                  className="font-display font-semibold text-base"
+                  style={{ color: "oklch(var(--foreground))" }}
+                >
+                  Loading training data…
+                </p>
+                <p
+                  className="text-sm font-body mt-1"
+                  style={{ color: "oklch(var(--muted-foreground))" }}
+                >
+                  Connecting to the backend
+                </p>
+              </div>
+              {/* Skeleton cards */}
+              <div className="w-full mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
+                {[1, 2, 3, 4].map((i) => (
+                  <div
+                    key={i}
+                    className="rounded-lg border p-5 space-y-3 animate-pulse"
+                    style={{
+                      borderColor: "oklch(var(--border))",
+                      background: "oklch(var(--card))",
+                    }}
+                  >
+                    <div
+                      className="h-4 rounded w-3/4"
+                      style={{ background: "oklch(var(--muted))" }}
+                    />
+                    <div
+                      className="h-3 rounded w-full"
+                      style={{ background: "oklch(var(--muted))" }}
+                    />
+                    <div
+                      className="h-3 rounded w-5/6"
+                      style={{ background: "oklch(var(--muted))" }}
+                    />
+                    <div className="flex gap-2 pt-1">
+                      <div
+                        className="h-6 rounded-full w-16"
+                        style={{ background: "oklch(var(--muted))" }}
+                      />
+                      <div
+                        className="h-6 rounded-full w-20"
+                        style={{ background: "oklch(var(--muted))" }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : /* Module Viewer */
+          selectedModule ? (
             <ModuleViewer
               module={selectedModule}
               completion={getCompletionForModule(
                 selectedModule.id,
-                selectedUserId ?? undefined,
+                effectiveUserId ?? undefined,
               )}
               selectedUser={selectedUser}
               onBack={() => setSelectedModule(null)}
-              onComplete={(data) => {
-                addCompletion({
+              onComplete={async (data) => {
+                await addCompletion({
                   moduleId: selectedModule.id,
-                  userId: selectedUserId ?? undefined,
+                  userId: effectiveUserId ?? undefined,
                   userName: data.userName,
                   initials: data.initials,
                   signatureData: data.signatureData,
@@ -502,83 +764,167 @@ export default function App() {
                 </div>
               </div>
 
-              {/* ── Trainee Selector ── */}
-              <div
-                className="mb-5 flex flex-wrap items-center gap-3 p-3 rounded-lg border"
-                style={{
-                  background: "oklch(var(--card))",
-                  borderColor: "oklch(var(--border))",
-                }}
-              >
-                <div className="flex items-center gap-2 shrink-0">
-                  <UserCheck
-                    className="w-4 h-4"
-                    style={{ color: "oklch(var(--primary))" }}
-                  />
-                  <span
-                    className="text-sm font-display font-semibold"
-                    style={{ color: "oklch(var(--foreground))" }}
-                  >
-                    View as trainee
-                  </span>
-                </div>
-
-                <Select
-                  value={selectedUserId ?? "all"}
-                  onValueChange={(val) =>
-                    setSelectedUserId(val === "all" ? null : val)
-                  }
+              {/* ── Trainee Selector (admin only) ── */}
+              {!isViewer && (
+                <div
+                  className="mb-5 flex flex-wrap items-center gap-3 p-3 rounded-lg border"
+                  style={{
+                    background: "oklch(var(--card))",
+                    borderColor: "oklch(var(--border))",
+                  }}
                 >
-                  <SelectTrigger
-                    data-ocid="modules.user_select"
-                    className="w-[220px] font-body text-sm h-8"
-                    style={{ borderColor: "oklch(var(--border))" }}
-                  >
-                    <SelectValue placeholder="All Modules" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all" className="font-body text-sm">
-                      All Modules
-                    </SelectItem>
-                    {users.map((user) => (
-                      <SelectItem
-                        key={user.id}
-                        value={user.id}
-                        className="font-body text-sm"
-                      >
-                        {user.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
-                {selectedUser && (
-                  <div className="flex items-center gap-2">
-                    <Badge
-                      className="gap-1.5 font-body font-medium text-xs h-7 px-3"
-                      style={{
-                        background: "oklch(0.92 0.04 255)",
-                        color: "oklch(0.28 0.065 255)",
-                        border: "1px solid oklch(0.75 0.08 255 / 50%)",
-                      }}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <UserCheck
+                      className="w-4 h-4"
+                      style={{ color: "oklch(var(--primary))" }}
+                    />
+                    <span
+                      className="text-sm font-display font-semibold"
+                      style={{ color: "oklch(var(--foreground))" }}
                     >
-                      <UserCheck className="w-3 h-3" />
-                      Viewing as: {selectedUser.name}
-                    </Badge>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setSelectedUserId(null)}
-                      data-ocid="modules.clear_user_button"
-                      className="h-7 w-7 p-0 rounded-full"
-                      style={{ color: "oklch(var(--muted-foreground))" }}
-                      title="Clear trainee filter"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </Button>
+                      View as trainee
+                    </span>
                   </div>
+
+                  <Select
+                    value={selectedUserId ?? "all"}
+                    onValueChange={(val) =>
+                      setSelectedUserId(val === "all" ? null : val)
+                    }
+                  >
+                    <SelectTrigger
+                      data-ocid="modules.user_select"
+                      className="w-[220px] font-body text-sm h-8"
+                      style={{ borderColor: "oklch(var(--border))" }}
+                    >
+                      <SelectValue placeholder="All Modules" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all" className="font-body text-sm">
+                        All Modules
+                      </SelectItem>
+                      {users.map((user) => (
+                        <SelectItem
+                          key={user.id}
+                          value={user.id}
+                          className="font-body text-sm"
+                        >
+                          {user.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  {selectedUser && (
+                    <div className="flex items-center gap-2">
+                      <Badge
+                        className="gap-1.5 font-body font-medium text-xs h-7 px-3"
+                        style={{
+                          background: "oklch(0.92 0.04 255)",
+                          color: "oklch(0.28 0.065 255)",
+                          border: "1px solid oklch(0.75 0.08 255 / 50%)",
+                        }}
+                      >
+                        <UserCheck className="w-3 h-3" />
+                        Viewing as: {selectedUser.name}
+                      </Badge>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedUserId(null)}
+                        data-ocid="modules.clear_user_button"
+                        className="h-7 w-7 p-0 rounded-full"
+                        style={{ color: "oklch(var(--muted-foreground))" }}
+                        title="Clear trainee filter"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Search bar ── */}
+              <div className="mb-3 relative">
+                <Search
+                  className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none"
+                  style={{ color: "oklch(var(--muted-foreground))" }}
+                />
+                <Input
+                  data-ocid="modules.search_input"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search modules by title or description..."
+                  className="pl-9 font-body text-sm h-9"
+                  style={{ borderColor: "oklch(var(--border))" }}
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded hover:opacity-70 transition-opacity"
+                    style={{ color: "oklch(var(--muted-foreground))" }}
+                    aria-label="Clear search"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
                 )}
               </div>
+
+              {/* ── Category filter chips ── */}
+              {categories.length > 0 && (
+                <div className="mb-4 flex items-center gap-2 overflow-x-auto pb-1">
+                  <button
+                    type="button"
+                    data-ocid="modules.category_filter.tab"
+                    onClick={() => setSelectedCategory(null)}
+                    className="shrink-0 text-xs font-display font-semibold px-3 py-1 rounded-full transition-all duration-150"
+                    style={
+                      selectedCategory === null
+                        ? {
+                            background: "oklch(var(--primary))",
+                            color: "oklch(var(--primary-foreground))",
+                            border: "1.5px solid oklch(var(--primary))",
+                          }
+                        : {
+                            background: "oklch(var(--card))",
+                            color: "oklch(var(--muted-foreground))",
+                            border: "1.5px solid oklch(var(--border))",
+                          }
+                    }
+                  >
+                    All
+                  </button>
+                  {categories.map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      data-ocid={`modules.category.${cat.toLowerCase()}.tab`}
+                      onClick={() =>
+                        setSelectedCategory(
+                          selectedCategory === cat ? null : cat,
+                        )
+                      }
+                      className="shrink-0 text-xs font-display font-semibold px-3 py-1 rounded-full transition-all duration-150"
+                      style={
+                        selectedCategory === cat
+                          ? {
+                              background: "oklch(0.55 0.12 280)",
+                              color: "white",
+                              border: "1.5px solid oklch(0.55 0.12 280)",
+                            }
+                          : {
+                              background: "oklch(0.92 0.04 280)",
+                              color: "oklch(0.35 0.12 280)",
+                              border: "1.5px solid oklch(0.78 0.08 280 / 40%)",
+                            }
+                      }
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {/* Modules grid */}
               {displayedModules.length === 0 ? (
@@ -598,17 +944,21 @@ export default function App() {
                     className="font-display font-semibold text-lg"
                     style={{ color: "oklch(var(--foreground))" }}
                   >
-                    {selectedUser
-                      ? `No modules assigned to ${selectedUser.name}`
-                      : "No training modules yet"}
+                    {searchQuery || selectedCategory
+                      ? "No modules match your search"
+                      : selectedUser
+                        ? `No modules assigned to ${selectedUser.name}`
+                        : "No training modules yet"}
                   </h3>
                   <p
                     className="text-sm font-body mt-1"
                     style={{ color: "oklch(var(--muted-foreground))" }}
                   >
-                    {selectedUser
-                      ? "Open the Admin panel → Users → Profile to assign modules."
-                      : "Visit the Admin panel to create your first training module."}
+                    {searchQuery || selectedCategory
+                      ? "Try a different search term or category filter."
+                      : selectedUser
+                        ? "Open the Admin panel → Users → Profile to assign modules."
+                        : "Visit the Admin panel to create your first training module."}
                   </p>
                 </div>
               ) : (
@@ -622,23 +972,38 @@ export default function App() {
                       module={module}
                       completion={getCompletionForModule(
                         module.id,
-                        selectedUserId ?? undefined,
+                        effectiveUserId ?? undefined,
                       )}
                       index={idx + 1}
                       onView={() => setSelectedModule(module)}
                       onCopyLink={
-                        selectedUserId
+                        effectiveUserId && !isViewer
                           ? () => {
-                              copyShareLink(module.id, selectedUserId);
+                              copyShareLink(module.id, effectiveUserId);
                               toast.success("Training link copied!");
                             }
                           : undefined
                       }
+                      onCopyPublicLink={() => {
+                        copyPublicModuleLink(module.id);
+                        toast.success(
+                          "Public link copied! Anyone with this link can complete the module.",
+                        );
+                      }}
                     />
                   ))}
                 </div>
               )}
             </div>
+          ) : currentView === "dashboard" ? (
+            /* ── Dashboard ── */
+            <DashboardView
+              modules={modules}
+              completions={completions}
+              users={users}
+              assignments={assignments}
+              categories={categories}
+            />
           ) : currentView === "admin" &&
             adminSubView === "module-viewer" &&
             adminViewingModule ? (
@@ -659,6 +1024,8 @@ export default function App() {
               modules={modules}
               completions={completions}
               users={users}
+              categories={categories}
+              currentSessionId={currentSession?.userId ?? null}
               onCreate={createModule}
               onUpdate={updateModule}
               onDelete={deleteModule}
@@ -667,6 +1034,10 @@ export default function App() {
               onDeleteUser={deleteUser}
               onAssignModules={assignModulesToUser}
               getAssignedModuleIds={getAssignedModuleIdsForUser}
+              addCategory={addCategory}
+              updateUserPermission={updateUserPermission}
+              approveUser={approveUser}
+              rejectUser={rejectUser}
             />
           )}
         </main>

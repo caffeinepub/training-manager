@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useActor } from "@/hooks/useActor";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -8,6 +9,7 @@ export type TrainingModule = {
   description: string;
   googleDocUrl: string;
   createdAt: number;
+  category?: string;
 };
 
 export type CompletionRecord = {
@@ -48,6 +50,10 @@ export type AppUser = {
   role: string;
   department: string;
   createdAt: number;
+  permission: "pending" | "viewer" | "admin" | "rejected";
+  loginSource?: "google" | "manual";
+  loginAt?: number;
+  email?: string;
 };
 
 export type UserAssignment = {
@@ -55,219 +61,558 @@ export type UserAssignment = {
   moduleIds: string[];
 };
 
-// ─── localStorage keys ────────────────────────────────────────────────────────
+// ─── Backend raw types ────────────────────────────────────────────────────────
 
-const MODULES_KEY = "training_modules";
-const COMPLETIONS_KEY = "training_completions";
-const USERS_KEY = "training_users";
-const ASSIGNMENTS_KEY = "training_assignments";
+type BackendModule = {
+  id: bigint;
+  title: string;
+  description: string;
+  googleDocUrl: string;
+  createdAt: bigint;
+  createdBy:
+    | { _arr: Uint8Array; _isPrincipal: boolean }
+    | { toString(): string };
+};
 
-// ─── Seed data ────────────────────────────────────────────────────────────────
+type BackendCompletion = {
+  id: bigint;
+  moduleId: bigint;
+  userId: { _arr: Uint8Array; _isPrincipal: boolean } | { toString(): string };
+  userName: string;
+  initials: string;
+  signatureData: string;
+  completedAt: bigint;
+};
 
-const SEED_MODULES: TrainingModule[] = [
-  {
-    id: "seed-1",
-    title: "Fire Safety SOP",
-    description:
-      "Emergency evacuation procedures and fire safety protocols for all staff. Covers assembly points, extinguisher usage, and reporting procedures.",
-    googleDocUrl:
-      "https://docs.google.com/document/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms/edit",
-    createdAt: Date.now() - 7 * 24 * 60 * 60 * 1000,
-  },
-  {
-    id: "seed-2",
-    title: "Health & Safety Onboarding",
-    description:
-      "Workplace health and safety induction for all new employees. Covers hazard identification, PPE requirements, and incident reporting.",
-    googleDocUrl:
-      "https://docs.google.com/document/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms/edit",
-    createdAt: Date.now() - 14 * 24 * 60 * 60 * 1000,
-  },
-  {
-    id: "seed-3",
-    title: "Data Privacy & GDPR Compliance",
-    description:
-      "Understanding of data protection principles, employee obligations, and how to handle personal data in compliance with GDPR.",
-    googleDocUrl:
-      "https://docs.google.com/document/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms/edit",
-    createdAt: Date.now() - 3 * 24 * 60 * 60 * 1000,
-  },
-];
+type BackendAppUser = {
+  id: string;
+  name: string;
+  role: string;
+  department: string;
+  email: string;
+  permission: string;
+  loginSource: string;
+  createdAt: bigint;
+  loginAt: bigint;
+};
 
-const SEED_USERS: AppUser[] = [
-  {
-    id: "user-seed-1",
-    name: "Sarah Mitchell",
-    role: "Operations Manager",
-    department: "Operations",
-    createdAt: Date.now() - 10 * 24 * 60 * 60 * 1000,
-  },
-  {
-    id: "user-seed-2",
-    name: "James Okafor",
-    role: "Safety Officer",
-    department: "Health & Safety",
-    createdAt: Date.now() - 8 * 24 * 60 * 60 * 1000,
-  },
-  {
-    id: "user-seed-3",
-    name: "Priya Sharma",
-    role: "HR Coordinator",
-    department: "Human Resources",
-    createdAt: Date.now() - 5 * 24 * 60 * 60 * 1000,
-  },
-];
+type BackendAssignment = {
+  userId: string;
+  moduleIds: string[];
+};
 
-const SEED_ASSIGNMENTS: UserAssignment[] = [
-  { userId: "user-seed-1", moduleIds: ["seed-1", "seed-2"] },
-  { userId: "user-seed-2", moduleIds: ["seed-1", "seed-3"] },
-  { userId: "user-seed-3", moduleIds: ["seed-2", "seed-3"] },
-];
+// ─── Backend actor interface (runtime methods) ────────────────────────────────
 
-// ─── Storage helpers ──────────────────────────────────────────────────────────
+type TrainingActor = {
+  getModules: () => Promise<BackendModule[]>;
+  getAllCompletions: () => Promise<BackendCompletion[]>;
+  createModule: (
+    title: string,
+    description: string,
+    googleDocUrl: string,
+  ) => Promise<bigint>;
+  updateModule: (
+    id: bigint,
+    title: string,
+    description: string,
+    googleDocUrl: string,
+  ) => Promise<void>;
+  deleteModule: (id: bigint) => Promise<void>;
+  submitCompletion: (
+    moduleId: bigint,
+    userName: string,
+    initials: string,
+    signatureData: string,
+  ) => Promise<bigint>;
+  _initializeAccessControlWithSecret: (token: string) => Promise<void>;
+  isCallerAdmin: () => Promise<boolean>;
+  // Users
+  createAppUser: (
+    name: string,
+    role: string,
+    department: string,
+    email: string,
+  ) => Promise<string>;
+  deleteAppUser: (userId: string) => Promise<void>;
+  updateAppUserPermission: (
+    userId: string,
+    permission: string,
+  ) => Promise<void>;
+  getAppUsers: () => Promise<BackendAppUser[]>;
+  registerGoogleUser: (name: string, email: string) => Promise<string>;
+  approveUser: (userId: string, role: string) => Promise<void>;
+  rejectUser: (userId: string) => Promise<void>;
+  // Assignments
+  assignModulesToUser: (userId: string, moduleIds: string[]) => Promise<void>;
+  getAssignmentsForUser: (userId: string) => Promise<string[]>;
+  getAllAssignments: () => Promise<BackendAssignment[]>;
+  // Categories
+  addCategory: (name: string) => Promise<void>;
+  deleteCategory: (name: string) => Promise<void>;
+  getCategories: () => Promise<string[]>;
+  setModuleCategory: (moduleId: string, category: string) => Promise<void>;
+  getModuleCategories: () => Promise<[string, string][]>;
+};
 
-function loadModules(): TrainingModule[] {
+// Rich completion extra fields stored in localStorage
+type CompletionExtra = {
+  managerName?: string;
+  managerSignatureData?: string;
+  trainingType?: CompletionRecord["trainingType"];
+  releaseSteps?: CompletionRecord["releaseSteps"];
+  acknowledgementInitials?: CompletionRecord["acknowledgementInitials"];
+};
+
+// ─── localStorage keys (session + completion extras only) ─────────────────────
+
+const SESSION_KEY = "training_session";
+// Extra completion data: { [completionId: string]: CompletionExtra }
+const COMPLETION_EXTRAS_KEY = "training_completion_extras";
+
+// ─── Session types ────────────────────────────────────────────────────────────
+
+export type UserSession = {
+  userId: string;
+  name: string;
+  email: string;
+};
+
+// ─── localStorage helpers (session + completion extras only) ──────────────────
+
+function loadCompletionExtras(): Record<string, CompletionExtra> {
   try {
-    const raw = localStorage.getItem(MODULES_KEY);
-    if (raw) return JSON.parse(raw) as TrainingModule[];
+    const raw = localStorage.getItem(COMPLETION_EXTRAS_KEY);
+    if (raw) return JSON.parse(raw) as Record<string, CompletionExtra>;
   } catch {
     // ignore
   }
-  // Seed on first load
-  localStorage.setItem(MODULES_KEY, JSON.stringify(SEED_MODULES));
-  return SEED_MODULES;
+  return {};
 }
 
-function saveModules(modules: TrainingModule[]): void {
-  localStorage.setItem(MODULES_KEY, JSON.stringify(modules));
+function saveCompletionExtras(extras: Record<string, CompletionExtra>): void {
+  localStorage.setItem(COMPLETION_EXTRAS_KEY, JSON.stringify(extras));
 }
 
-function loadCompletions(): CompletionRecord[] {
+function loadSession(): UserSession | null {
   try {
-    const raw = localStorage.getItem(COMPLETIONS_KEY);
-    if (raw) return JSON.parse(raw) as CompletionRecord[];
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (raw) return JSON.parse(raw) as UserSession;
   } catch {
     // ignore
   }
-  return [];
+  return null;
 }
 
-function saveCompletions(completions: CompletionRecord[]): void {
-  localStorage.setItem(COMPLETIONS_KEY, JSON.stringify(completions));
-}
-
-function loadUsers(): AppUser[] {
-  try {
-    const raw = localStorage.getItem(USERS_KEY);
-    if (raw) return JSON.parse(raw) as AppUser[];
-  } catch {
-    // ignore
+function saveSession(session: UserSession | null): void {
+  if (session) {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  } else {
+    localStorage.removeItem(SESSION_KEY);
   }
-  // Seed on first load
-  localStorage.setItem(USERS_KEY, JSON.stringify(SEED_USERS));
-  return SEED_USERS;
 }
 
-function saveUsers(users: AppUser[]): void {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+// ─── Conversion helpers ───────────────────────────────────────────────────────
+
+function backendModuleToFrontend(
+  bm: BackendModule,
+  categoryMap: Record<string, string>,
+): TrainingModule {
+  const idStr = Number(bm.id).toString();
+  return {
+    id: idStr,
+    title: bm.title,
+    description: bm.description,
+    googleDocUrl: bm.googleDocUrl,
+    createdAt: Number(bm.createdAt) / 1_000_000,
+    category: categoryMap[idStr],
+  };
 }
 
-function loadAssignments(): UserAssignment[] {
-  try {
-    const raw = localStorage.getItem(ASSIGNMENTS_KEY);
-    if (raw) return JSON.parse(raw) as UserAssignment[];
-  } catch {
-    // ignore
-  }
-  // Seed on first load
-  localStorage.setItem(ASSIGNMENTS_KEY, JSON.stringify(SEED_ASSIGNMENTS));
-  return SEED_ASSIGNMENTS;
+function backendCompletionToFrontend(
+  bc: BackendCompletion,
+  extras: Record<string, CompletionExtra>,
+): CompletionRecord {
+  const idStr = Number(bc.id).toString();
+  const extra = extras[idStr] ?? {};
+  return {
+    id: idStr,
+    moduleId: Number(bc.moduleId).toString(),
+    userId: bc.userId.toString(),
+    userName: bc.userName,
+    initials: bc.initials,
+    signatureData: bc.signatureData,
+    completedAt: Number(bc.completedAt) / 1_000_000,
+    ...extra,
+  };
 }
 
-function saveAssignments(assignments: UserAssignment[]): void {
-  localStorage.setItem(ASSIGNMENTS_KEY, JSON.stringify(assignments));
-}
-
-function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+function backendUserToFrontend(bu: BackendAppUser): AppUser {
+  return {
+    id: bu.id,
+    name: bu.name,
+    role: bu.role,
+    department: bu.department,
+    email: bu.email || undefined,
+    permission: (["pending", "viewer", "admin", "rejected"].includes(
+      bu.permission,
+    )
+      ? bu.permission
+      : "pending") as "pending" | "viewer" | "admin" | "rejected",
+    loginSource:
+      bu.loginSource === "google"
+        ? "google"
+        : bu.loginSource === "manual"
+          ? "manual"
+          : undefined,
+    createdAt: Number(bu.createdAt) / 1_000_000,
+    loginAt:
+      Number(bu.loginAt) > 0 ? Number(bu.loginAt) / 1_000_000 : undefined,
+  };
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useTrainingData() {
-  const [modules, setModules] = useState<TrainingModule[]>(() => loadModules());
-  const [completions, setCompletions] = useState<CompletionRecord[]>(() =>
-    loadCompletions(),
+  const { actor: rawActor, isFetching: actorFetching } = useActor();
+  // Cast to our typed actor interface — backend methods exist at runtime
+  const actor = rawActor as unknown as TrainingActor | null;
+
+  // Modules come from backend
+  const [modules, setModules] = useState<TrainingModule[]>([]);
+  // Completions come from backend (merged with localStorage extras)
+  const [completions, setCompletions] = useState<CompletionRecord[]>([]);
+  // Category map: backend module id → category string (from backend)
+  // Stored as a ref so mutation helpers can read/write it without triggering renders
+  const moduleCategoryMapRef = useRef<Record<string, string>>({});
+
+  // Completion extras: completion id → rich fields (localStorage)
+  const [completionExtrasMap, setCompletionExtrasMap] = useState<
+    Record<string, CompletionExtra>
+  >(() => loadCompletionExtras());
+
+  // Backend-persisted state
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [assignments, setAssignments] = useState<UserAssignment[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
+
+  // Session is still per-device (localStorage)
+  const [currentSession, setCurrentSession] = useState<UserSession | null>(() =>
+    loadSession(),
   );
-  const [users, setUsers] = useState<AppUser[]>(() => loadUsers());
-  const [assignments, setAssignments] = useState<UserAssignment[]>(() =>
-    loadAssignments(),
-  );
 
-  // Sync to localStorage
-  useEffect(() => {
-    saveModules(modules);
-  }, [modules]);
-  useEffect(() => {
-    saveCompletions(completions);
-  }, [completions]);
-  useEffect(() => {
-    saveUsers(users);
-  }, [users]);
-  useEffect(() => {
-    saveAssignments(assignments);
-  }, [assignments]);
+  // Loading state: true until all data is loaded from backend
+  const [isLoading, setIsLoading] = useState(true);
+  // Track which actor instance we last fetched for, to re-fetch when it changes
+  const lastActorRef = useRef<TrainingActor | null>(null);
+  // Track which actor instances have been initialized with admin token
+  const initializedActorsRef = useRef<Set<TrainingActor>>(new Set());
 
-  // ── Modules CRUD ─────────────────────────────────────────────────────────────
+  // ── Ensure actor has admin access ─────────────────────────────────────────
 
-  const createModule = useCallback(
-    (data: Omit<TrainingModule, "id" | "createdAt">) => {
-      const newModule: TrainingModule = {
-        ...data,
-        id: generateId(),
-        createdAt: Date.now(),
-      };
-      setModules((prev) => [...prev, newModule]);
-      return newModule;
+  const ensureActorInitialized = useCallback(
+    async (actorInstance: TrainingActor) => {
+      if (initializedActorsRef.current.has(actorInstance)) return;
+      try {
+        const { getSecretParameter } = await import("@/utils/urlParams");
+        const adminToken = getSecretParameter("caffeineAdminToken") || "";
+        if (adminToken) {
+          await actorInstance._initializeAccessControlWithSecret(adminToken);
+        }
+        initializedActorsRef.current.add(actorInstance);
+      } catch {
+        // Ignore if already initialized or token unavailable
+        // Still mark as initialized to avoid repeated attempts
+        initializedActorsRef.current.add(actorInstance);
+      }
     },
     [],
+  );
+
+  // ── Sync completion extras to localStorage ────────────────────────────────
+
+  useEffect(() => {
+    saveCompletionExtras(completionExtrasMap);
+  }, [completionExtrasMap]);
+
+  // ── Fetch from backend when actor becomes available or changes ────────────
+
+  useEffect(() => {
+    // Wait until actor is ready and not in a loading/fetching state
+    if (actorFetching || !actor) return;
+    // Only re-fetch if the actor instance has changed (e.g., after auth init)
+    if (lastActorRef.current === actor) return;
+    lastActorRef.current = actor;
+
+    const extras = loadCompletionExtras();
+
+    const fetchAll = async () => {
+      setIsLoading(true);
+      try {
+        // Ensure the caller has admin rights so all CRUD operations succeed.
+        // This is needed for anonymous actors (app uses local Google login, not Internet Identity).
+        await ensureActorInitialized(actor);
+
+        // Fetch all data in parallel
+        const [
+          backendModules,
+          backendCompletions,
+          backendUsers,
+          backendAssignments,
+          backendCategories,
+          backendModuleCategories,
+        ] = await Promise.all([
+          actor.getModules(),
+          actor.getAllCompletions(),
+          actor.getAppUsers().catch(() => [] as BackendAppUser[]),
+          actor.getAllAssignments().catch(() => [] as BackendAssignment[]),
+          actor.getCategories().catch(() => [] as string[]),
+          actor.getModuleCategories().catch(() => [] as [string, string][]),
+        ]);
+
+        // Build category map from backend pairs
+        const categoryMap: Record<string, string> = {};
+        for (const [moduleId, category] of backendModuleCategories) {
+          categoryMap[moduleId] = category;
+        }
+        moduleCategoryMapRef.current = categoryMap;
+
+        const frontendModules = backendModules.map((bm) =>
+          backendModuleToFrontend(bm, categoryMap),
+        );
+        setModules(frontendModules);
+
+        const frontendCompletions = backendCompletions.map((bc) =>
+          backendCompletionToFrontend(bc, extras),
+        );
+        setCompletions(frontendCompletions);
+
+        const frontendUsers = backendUsers.map(backendUserToFrontend);
+        setUsers(frontendUsers);
+
+        setAssignments(
+          backendAssignments.map((a) => ({
+            userId: a.userId,
+            moduleIds: a.moduleIds,
+          })),
+        );
+
+        setCategories(backendCategories);
+      } catch (err) {
+        console.error("[useTrainingData] Failed to fetch from backend:", err);
+        // Gracefully fall back to empty arrays
+        setModules([]);
+        setCompletions([]);
+        setUsers([]);
+        setAssignments([]);
+        setCategories([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    void fetchAll();
+  }, [actor, actorFetching, ensureActorInitialized]);
+
+  // If actor never loads, don't stay in loading state forever
+  useEffect(() => {
+    if (!actorFetching && !actor) {
+      const timer = setTimeout(() => {
+        setIsLoading(false);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [actor, actorFetching]);
+
+  // ── Modules CRUD ──────────────────────────────────────────────────────────
+
+  const createModule = useCallback(
+    async (data: Omit<TrainingModule, "id" | "createdAt">) => {
+      if (!actor) {
+        console.warn("[useTrainingData] No actor available for createModule");
+        return null;
+      }
+      try {
+        await ensureActorInitialized(actor);
+        const backendId = await actor.createModule(
+          data.title,
+          data.description,
+          data.googleDocUrl,
+        );
+        const idStr = Number(backendId).toString();
+
+        // Store category in backend
+        if (data.category) {
+          try {
+            await actor.setModuleCategory(idStr, data.category);
+          } catch (err) {
+            console.warn("[useTrainingData] setModuleCategory failed:", err);
+          }
+          moduleCategoryMapRef.current = {
+            ...moduleCategoryMapRef.current,
+            [idStr]: data.category!,
+          };
+        }
+
+        const newModule: TrainingModule = {
+          id: idStr,
+          title: data.title,
+          description: data.description,
+          googleDocUrl: data.googleDocUrl,
+          createdAt: Date.now(),
+          category: data.category,
+        };
+        setModules((prev) => [...prev, newModule]);
+        return newModule;
+      } catch (err) {
+        console.error("[useTrainingData] createModule failed:", err);
+        return null;
+      }
+    },
+    [actor, ensureActorInitialized],
   );
 
   const updateModule = useCallback(
-    (id: string, data: Partial<Omit<TrainingModule, "id" | "createdAt">>) => {
-      setModules((prev) =>
-        prev.map((m) => (m.id === id ? { ...m, ...data } : m)),
-      );
+    async (
+      id: string,
+      data: Partial<Omit<TrainingModule, "id" | "createdAt">>,
+    ) => {
+      if (!actor) {
+        console.warn("[useTrainingData] No actor available for updateModule");
+        return;
+      }
+      try {
+        await ensureActorInitialized(actor);
+        // Get the current module to fill in blanks
+        const current = modules.find((m) => m.id === id);
+        if (!current) return;
+
+        await actor.updateModule(
+          BigInt(id),
+          data.title ?? current.title,
+          data.description ?? current.description,
+          data.googleDocUrl ?? current.googleDocUrl,
+        );
+
+        // Update category in backend
+        if (data.category !== undefined) {
+          try {
+            await actor.setModuleCategory(id, data.category ?? "");
+          } catch (err) {
+            console.warn("[useTrainingData] setModuleCategory failed:", err);
+          }
+          const catMapNext = { ...moduleCategoryMapRef.current };
+          if (data.category) {
+            catMapNext[id] = data.category;
+          } else {
+            delete catMapNext[id];
+          }
+          moduleCategoryMapRef.current = catMapNext;
+        }
+
+        setModules((prev) =>
+          prev.map((m) =>
+            m.id === id
+              ? {
+                  ...m,
+                  ...data,
+                  category:
+                    data.category !== undefined ? data.category : m.category,
+                }
+              : m,
+          ),
+        );
+      } catch (err) {
+        console.error("[useTrainingData] updateModule failed:", err);
+      }
     },
-    [],
+    [actor, modules, ensureActorInitialized],
   );
 
-  const deleteModule = useCallback((id: string) => {
-    setModules((prev) => prev.filter((m) => m.id !== id));
-    // Also delete associated completions
-    setCompletions((prev) => prev.filter((c) => c.moduleId !== id));
-    // Also remove from all user assignments
-    setAssignments((prev) =>
-      prev.map((a) => ({
-        ...a,
-        moduleIds: a.moduleIds.filter((mid) => mid !== id),
-      })),
-    );
-  }, []);
+  const deleteModule = useCallback(
+    async (id: string) => {
+      if (!actor) {
+        console.warn("[useTrainingData] No actor available for deleteModule");
+        return;
+      }
+      try {
+        await ensureActorInitialized(actor);
+        await actor.deleteModule(BigInt(id));
 
-  // ── Completions ───────────────────────────────────────────────────────────────
+        setModules((prev) => prev.filter((m) => m.id !== id));
+        // Remove category from local map (backend handles persistence)
+        const catMapDel = { ...moduleCategoryMapRef.current };
+        delete catMapDel[id];
+        moduleCategoryMapRef.current = catMapDel;
+        // Remove associated completions
+        setCompletions((prev) => prev.filter((c) => c.moduleId !== id));
+        // Remove from user assignments in local state
+        setAssignments((prev) =>
+          prev.map((a) => ({
+            ...a,
+            moduleIds: a.moduleIds.filter((mid) => mid !== id),
+          })),
+        );
+      } catch (err) {
+        console.error("[useTrainingData] deleteModule failed:", err);
+      }
+    },
+    [actor, ensureActorInitialized],
+  );
+
+  // ── Completions ───────────────────────────────────────────────────────────
 
   const addCompletion = useCallback(
-    (data: Omit<CompletionRecord, "id" | "completedAt">) => {
-      const newCompletion: CompletionRecord = {
-        ...data,
-        id: generateId(),
-        completedAt: Date.now(),
-      };
-      setCompletions((prev) => [...prev, newCompletion]);
-      return newCompletion;
+    async (data: Omit<CompletionRecord, "id" | "completedAt">) => {
+      if (!actor) {
+        console.warn("[useTrainingData] No actor available for addCompletion");
+        return null;
+      }
+      try {
+        await ensureActorInitialized(actor);
+        const backendId = await actor.submitCompletion(
+          BigInt(data.moduleId),
+          data.userName,
+          data.initials,
+          data.signatureData,
+        );
+        const idStr = Number(backendId).toString();
+
+        // Store rich fields in localStorage
+        const extra: CompletionExtra = {};
+        if (data.managerName) extra.managerName = data.managerName;
+        if (data.managerSignatureData)
+          extra.managerSignatureData = data.managerSignatureData;
+        if (data.trainingType) extra.trainingType = data.trainingType;
+        if (data.releaseSteps) extra.releaseSteps = data.releaseSteps;
+        if (data.acknowledgementInitials)
+          extra.acknowledgementInitials = data.acknowledgementInitials;
+
+        if (Object.keys(extra).length > 0) {
+          setCompletionExtrasMap((prev) => {
+            const next = { ...prev, [idStr]: extra };
+            saveCompletionExtras(next);
+            return next;
+          });
+        }
+
+        const newCompletion: CompletionRecord = {
+          id: idStr,
+          moduleId: data.moduleId,
+          userId: data.userId,
+          userName: data.userName,
+          initials: data.initials,
+          signatureData: data.signatureData,
+          completedAt: Date.now(),
+          ...extra,
+        };
+        setCompletions((prev) => [...prev, newCompletion]);
+        return newCompletion;
+      } catch (err) {
+        console.error("[useTrainingData] addCompletion failed:", err);
+        return null;
+      }
     },
-    [],
+    [actor, ensureActorInitialized],
   );
 
   const getCompletionForModule = useCallback(
@@ -282,31 +627,258 @@ export function useTrainingData() {
     [completions],
   );
 
-  // ── Users CRUD ────────────────────────────────────────────────────────────────
+  // ── Session / Google Login ────────────────────────────────────────────────
 
-  const createUser = useCallback((data: Omit<AppUser, "id" | "createdAt">) => {
-    const newUser: AppUser = {
-      ...data,
-      id: generateId(),
-      createdAt: Date.now(),
-    };
-    setUsers((prev) => [...prev, newUser]);
-    // Start with empty assignment for new user
-    setAssignments((prev) => [...prev, { userId: newUser.id, moduleIds: [] }]);
-    return newUser;
+  const loginWithGoogle = useCallback(
+    async (name: string, email: string) => {
+      // Try to register/upsert via backend
+      if (actor) {
+        try {
+          const userId = await actor.registerGoogleUser(name, email);
+          // Refresh users list from backend
+          try {
+            const backendUsers = await actor.getAppUsers();
+            setUsers(backendUsers.map(backendUserToFrontend));
+          } catch {
+            // If fetch fails, add optimistically
+            setUsers((prev) => {
+              const existing = prev.find(
+                (u) => u.email?.toLowerCase() === email.toLowerCase(),
+              );
+              if (existing) {
+                return prev.map((u) =>
+                  u.id === existing.id
+                    ? {
+                        ...u,
+                        loginAt: Date.now(),
+                        loginSource: "google" as const,
+                      }
+                    : u,
+                );
+              }
+              return [
+                ...prev,
+                {
+                  id: userId,
+                  name,
+                  role: "",
+                  department: "",
+                  createdAt: Date.now(),
+                  permission: "viewer" as const,
+                  loginSource: "google" as const,
+                  loginAt: Date.now(),
+                  email,
+                },
+              ];
+            });
+          }
+          const session: UserSession = { userId, name, email };
+          setCurrentSession(session);
+          saveSession(session);
+          return;
+        } catch (err) {
+          console.warn(
+            "[useTrainingData] registerGoogleUser failed, falling back to local:",
+            err,
+          );
+        }
+      }
+
+      // Fallback: local-only (no backend)
+      setUsers((prev) => {
+        const existing = prev.find(
+          (u) => u.email?.toLowerCase() === email.toLowerCase(),
+        );
+        const now = Date.now();
+        let userId: string;
+
+        if (existing) {
+          userId = existing.id;
+          const updated = prev.map((u) =>
+            u.id === existing.id
+              ? { ...u, loginAt: now, loginSource: "google" as const }
+              : u,
+          );
+          const session: UserSession = { userId, name: existing.name, email };
+          setCurrentSession(session);
+          saveSession(session);
+          return updated;
+        }
+        userId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        const newUser: AppUser = {
+          id: userId,
+          name,
+          role: "",
+          department: "",
+          createdAt: now,
+          permission: "viewer",
+          loginSource: "google",
+          loginAt: now,
+          email,
+        };
+        const updated = [...prev, newUser];
+        setAssignments((a) => [...a, { userId, moduleIds: [] }]);
+        const session: UserSession = { userId, name, email };
+        setCurrentSession(session);
+        saveSession(session);
+        return updated;
+      });
+    },
+    [actor],
+  );
+
+  const logout = useCallback(() => {
+    setCurrentSession(null);
+    saveSession(null);
   }, []);
 
-  const deleteUser = useCallback((id: string) => {
-    setUsers((prev) => prev.filter((u) => u.id !== id));
-    setAssignments((prev) => prev.filter((a) => a.userId !== id));
-  }, []);
+  // ── Users CRUD ────────────────────────────────────────────────────────────
+
+  const createUser = useCallback(
+    async (data: Omit<AppUser, "id" | "createdAt">) => {
+      if (!actor) {
+        console.warn("[useTrainingData] No actor available for createUser");
+        return null;
+      }
+      try {
+        await ensureActorInitialized(actor);
+        const userId = await actor.createAppUser(
+          data.name,
+          data.role ?? "",
+          data.department ?? "",
+          data.email ?? "",
+        );
+        const newUser: AppUser = {
+          id: userId,
+          name: data.name,
+          role: data.role ?? "",
+          department: data.department ?? "",
+          email: data.email,
+          permission: data.permission ?? "viewer",
+          loginSource: data.loginSource,
+          createdAt: Date.now(),
+        };
+        setUsers((prev) => [...prev, newUser]);
+        setAssignments((prev) => [...prev, { userId, moduleIds: [] }]);
+        return newUser;
+      } catch (err) {
+        console.error("[useTrainingData] createUser failed:", err);
+        return null;
+      }
+    },
+    [actor, ensureActorInitialized],
+  );
+
+  const deleteUser = useCallback(
+    async (id: string) => {
+      if (!actor) {
+        console.warn("[useTrainingData] No actor available for deleteUser");
+        return;
+      }
+      try {
+        await ensureActorInitialized(actor);
+        await actor.deleteAppUser(id);
+        setUsers((prev) => prev.filter((u) => u.id !== id));
+        setAssignments((prev) => prev.filter((a) => a.userId !== id));
+      } catch (err) {
+        console.error("[useTrainingData] deleteUser failed:", err);
+      }
+    },
+    [actor, ensureActorInitialized],
+  );
 
   const getUsers = useCallback(() => users, [users]);
 
-  // ── Assignments ───────────────────────────────────────────────────────────────
+  const updateUserPermission = useCallback(
+    async (
+      userId: string,
+      permission: "pending" | "viewer" | "admin" | "rejected",
+    ) => {
+      if (!actor) {
+        console.warn(
+          "[useTrainingData] No actor available for updateUserPermission",
+        );
+        return;
+      }
+      try {
+        await ensureActorInitialized(actor);
+        await actor.updateAppUserPermission(userId, permission);
+        setUsers((prev) =>
+          prev.map((u) => (u.id === userId ? { ...u, permission } : u)),
+        );
+      } catch (err) {
+        console.error("[useTrainingData] updateUserPermission failed:", err);
+      }
+    },
+    [actor, ensureActorInitialized],
+  );
+
+  const approveUser = useCallback(
+    async (userId: string, role: string) => {
+      if (!actor) return;
+      try {
+        await ensureActorInitialized(actor);
+        await actor.approveUser(userId, role);
+        const backendUsers = await actor.getAppUsers();
+        setUsers(backendUsers.map(backendUserToFrontend));
+      } catch (err) {
+        console.error("[useTrainingData] approveUser failed:", err);
+      }
+    },
+    [actor, ensureActorInitialized],
+  );
+
+  const rejectUser = useCallback(
+    async (userId: string) => {
+      if (!actor) return;
+      try {
+        await ensureActorInitialized(actor);
+        await actor.rejectUser(userId);
+        const backendUsers = await actor.getAppUsers();
+        setUsers(backendUsers.map(backendUserToFrontend));
+      } catch (err) {
+        console.error("[useTrainingData] rejectUser failed:", err);
+      }
+    },
+    [actor, ensureActorInitialized],
+  );
+
+  // ── Categories ────────────────────────────────────────────────────────────
+
+  const addCategory = useCallback(
+    async (name: string) => {
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      if (actor) {
+        try {
+          await ensureActorInitialized(actor);
+          await actor.addCategory(trimmed);
+        } catch (err) {
+          console.warn("[useTrainingData] addCategory failed:", err);
+        }
+      }
+      setCategories((prev) => {
+        if (prev.some((c) => c.toLowerCase() === trimmed.toLowerCase()))
+          return prev;
+        return [...prev, trimmed];
+      });
+    },
+    [actor, ensureActorInitialized],
+  );
+
+  // ── Assignments ───────────────────────────────────────────────────────────
 
   const assignModulesToUser = useCallback(
-    (userId: string, moduleIds: string[]) => {
+    async (userId: string, moduleIds: string[]) => {
+      if (actor) {
+        try {
+          await ensureActorInitialized(actor);
+          await actor.assignModulesToUser(userId, moduleIds);
+        } catch (err) {
+          console.warn("[useTrainingData] assignModulesToUser failed:", err);
+        }
+      }
+      // Optimistic local update
       setAssignments((prev) => {
         const exists = prev.some((a) => a.userId === userId);
         if (exists) {
@@ -317,7 +889,7 @@ export function useTrainingData() {
         return [...prev, { userId, moduleIds }];
       });
     },
-    [],
+    [actor, ensureActorInitialized],
   );
 
   const getAssignedModulesForUser = useCallback(
@@ -336,11 +908,27 @@ export function useTrainingData() {
     [assignments],
   );
 
+  // Derive current user's permission from their profile in the users list
+  const currentUserPermission: "pending" | "viewer" | "admin" | "rejected" =
+    (() => {
+      if (!currentSession) return "pending";
+      const found = users.find(
+        (u) =>
+          u.email?.toLowerCase() === currentSession.email.toLowerCase() ||
+          u.id === currentSession.userId,
+      );
+      return found?.permission ?? "pending";
+    })();
+
   return {
     modules,
     completions,
     users,
     assignments,
+    categories,
+    currentSession,
+    currentUserPermission,
+    isLoading,
     createModule,
     updateModule,
     deleteModule,
@@ -349,8 +937,14 @@ export function useTrainingData() {
     createUser,
     deleteUser,
     getUsers,
+    updateUserPermission,
+    approveUser,
+    rejectUser,
+    addCategory,
     assignModulesToUser,
     getAssignedModulesForUser,
     getAssignedModuleIdsForUser,
+    loginWithGoogle,
+    logout,
   };
 }

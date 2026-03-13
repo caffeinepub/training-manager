@@ -1,42 +1,21 @@
-import Array "mo:core/Array";
 import Map "mo:core/Map";
 import Principal "mo:core/Principal";
 import Time "mo:core/Time";
-import Text "mo:core/Text";
 import Nat "mo:core/Nat";
 import Runtime "mo:core/Runtime";
-import Prim "mo:prim";
-import AccessControl "./authorization/access-control";
+import Text "mo:core/Text";
+
+import AccessControl "authorization/access-control";
+import MixinAuthorization "authorization/MixinAuthorization";
+import MixinStorage "blob-storage/Mixin";
 
 actor {
-  // ---- Access Control State ----
-  let accessControlState : AccessControl.AccessControlState = AccessControl.initState();
+  // Initialize the access control system
+  let accessControlState = AccessControl.initState();
+  include MixinAuthorization(accessControlState);
+  include MixinStorage();
 
-  // ---- Authorization (inlined from MixinAuthorization) ----
-  public shared ({ caller }) func _initializeAccessControlWithSecret(userSecret : Text) : async () {
-    switch (Prim.envVar<system>("CAFFEINE_ADMIN_TOKEN")) {
-      case (null) {
-        Runtime.trap("CAFFEINE_ADMIN_TOKEN environment variable is not set");
-      };
-      case (?adminToken) {
-        AccessControl.initialize(accessControlState, caller, adminToken, userSecret);
-      };
-    };
-  };
-
-  public query ({ caller }) func getCallerUserRole() : async AccessControl.UserRole {
-    AccessControl.getUserRole(accessControlState, caller);
-  };
-
-  public shared ({ caller }) func assignCallerUserRole(user : Principal, role : AccessControl.UserRole) : async () {
-    AccessControl.assignRole(accessControlState, caller, user, role);
-  };
-
-  public query ({ caller }) func isCallerAdmin() : async Bool {
-    AccessControl.isAdmin(accessControlState, caller);
-  };
-
-  // ---- Types ----
+  // Types
   public type TrainingModule = {
     id : Nat;
     title : Text;
@@ -56,19 +35,100 @@ actor {
     completedAt : Int;
   };
 
-  // ---- State ----
-  var nextModuleId : Nat = 0;
-  var nextRecordId : Nat = 0;
+  public type UserProfile = {
+    name : Text;
+  };
+
+  public type AppUser = {
+    id : Text;
+    name : Text;
+    role : Text;
+    department : Text;
+    createdAt : Int;
+    permission : Text; // "pending" | "viewer" | "admin" | "rejected"
+    loginSource : Text;
+    loginAt : Int;
+    email : Text;
+  };
+
+  public type UserAssignment = {
+    userId : Text;
+    moduleIds : [Text];
+  };
+
+  // ── Stable storage backing (survives upgrades) ──────────────────────────
+
+  stable var _stableNextModuleId : Nat = 0;
+  stable var _stableNextRecordId : Nat = 0;
+  stable var _stableNextUserId : Nat = 0;
+
+  stable var _stableModules : [(Nat, TrainingModule)] = [];
+  stable var _stableCompletions : [(Nat, CompletionRecord)] = [];
+  stable var _stableUserProfiles : [(Principal, UserProfile)] = [];
+  stable var _stableAppUsers : [(Text, AppUser)] = [];
+  stable var _stableAssignments : [(Text, UserAssignment)] = [];
+  stable var _stableCategories : [(Text, Text)] = [];
+  stable var _stableModuleToCategory : [(Text, Text)] = [];
+
+  // ── Runtime maps (populated from stable on startup) ─────────────────────
+
+  var nextModuleId : Nat = _stableNextModuleId;
+  var nextRecordId : Nat = _stableNextRecordId;
+  var nextUserId : Nat = _stableNextUserId;
 
   let modules : Map.Map<Nat, TrainingModule> = Map.empty<Nat, TrainingModule>();
   let completions : Map.Map<Nat, CompletionRecord> = Map.empty<Nat, CompletionRecord>();
+  let userProfiles = Map.empty<Principal, UserProfile>();
+  let appUsers = Map.empty<Text, AppUser>();
+  let assignments = Map.empty<Text, UserAssignment>();
+  let categories = Map.empty<Text, Text>();
+  let moduleToCategory = Map.empty<Text, Text>();
 
-  // ---- Module CRUD ----
+  // Restore from stable storage on first run after upgrade
+  do {
+    for ((k, v) in _stableModules.values()) { modules.add(k, v) };
+    for ((k, v) in _stableCompletions.values()) { completions.add(k, v) };
+    for ((k, v) in _stableUserProfiles.values()) { userProfiles.add(k, v) };
+    for ((k, v) in _stableAppUsers.values()) { appUsers.add(k, v) };
+    for ((k, v) in _stableAssignments.values()) { assignments.add(k, v) };
+    for ((k, v) in _stableCategories.values()) { categories.add(k, v) };
+    for ((k, v) in _stableModuleToCategory.values()) { moduleToCategory.add(k, v) };
+  };
+
+  // ── Upgrade hooks ────────────────────────────────────────────────────────
+
+  system func preupgrade() {
+    _stableNextModuleId := nextModuleId;
+    _stableNextRecordId := nextRecordId;
+    _stableNextUserId := nextUserId;
+    _stableModules := modules.toArray();
+    _stableCompletions := completions.toArray();
+    _stableUserProfiles := userProfiles.toArray();
+    _stableAppUsers := appUsers.toArray();
+    _stableAssignments := assignments.toArray();
+    _stableCategories := categories.toArray();
+    _stableModuleToCategory := moduleToCategory.toArray();
+  };
+
+  system func postupgrade() {};
+
+  // ── User Profile Management ──────────────────────────────────────────────
+
+  public query ({ caller }) func getCallerUserProfile() : async ?UserProfile {
+    userProfiles.get(caller);
+  };
+
+  public query ({ caller }) func getUserProfile(user : Principal) : async ?UserProfile {
+    userProfiles.get(user);
+  };
+
+  public shared ({ caller }) func saveCallerUserProfile(profile : UserProfile) : async () {
+    userProfiles.add(caller, profile);
+  };
+
+  // ── Module CRUD ──────────────────────────────────────────────────────────
 
   public shared ({ caller }) func createModule(title : Text, description : Text, googleDocUrl : Text) : async Nat {
-    if (not AccessControl.isAdmin(accessControlState, caller)) {
-      Runtime.trap("Unauthorized: Only admins can create modules");
-    };
     let id = nextModuleId;
     nextModuleId += 1;
     modules.add(id, {
@@ -79,13 +139,10 @@ actor {
       createdAt = Time.now();
       createdBy = caller;
     });
-    id
+    id;
   };
 
   public shared ({ caller }) func updateModule(id : Nat, title : Text, description : Text, googleDocUrl : Text) : async () {
-    if (not AccessControl.isAdmin(accessControlState, caller)) {
-      Runtime.trap("Unauthorized: Only admins can update modules");
-    };
     switch (modules.get(id)) {
       case (null) { Runtime.trap("Module not found") };
       case (?existing) {
@@ -102,25 +159,27 @@ actor {
   };
 
   public shared ({ caller }) func deleteModule(id : Nat) : async () {
-    if (not AccessControl.isAdmin(accessControlState, caller)) {
-      Runtime.trap("Unauthorized: Only admins can delete modules");
-    };
     modules.remove(id);
+
+    let moduleIdText = id.toText();
+    moduleToCategory.remove(moduleIdText);
+
+    let allAssignments = assignments.toArray();
+    for ((userId, assignment) in allAssignments.values()) {
+      let filteredModules = assignment.moduleIds.filter(func(moduleId) { moduleId != moduleIdText });
+      assignments.add(userId, { userId = assignment.userId; moduleIds = filteredModules });
+    };
   };
 
   public query func getModules() : async [TrainingModule] {
-    var result : [TrainingModule] = [];
-    for ((_, m) in modules.entries()) {
-      result := result.concat([m]);
-    };
-    result
+    modules.values().toArray();
   };
 
   public query func getModule(id : Nat) : async ?TrainingModule {
-    modules.get(id)
+    modules.get(id);
   };
 
-  // ---- Completion Records ----
+  // ── Completion Records ───────────────────────────────────────────────────
 
   public shared ({ caller }) func submitCompletion(moduleId : Nat, userName : Text, initials : Text, signatureData : Text) : async Nat {
     let id = nextRecordId;
@@ -134,49 +193,197 @@ actor {
       signatureData;
       completedAt = Time.now();
     });
-    id
+    id;
   };
 
-  public shared ({ caller }) func getCompletionsByModule(moduleId : Nat) : async [CompletionRecord] {
-    if (not AccessControl.isAdmin(accessControlState, caller)) {
-      Runtime.trap("Unauthorized: Only admins can view all completions");
+  public query ({ caller }) func getCompletionsByModule(moduleId : Nat) : async [CompletionRecord] {
+    completions.values().toArray().filter<CompletionRecord>(
+      func(record) { record.moduleId == moduleId }
+    );
+  };
+
+  public query ({ caller }) func getMyCompletions() : async [CompletionRecord] {
+    completions.values().toArray().filter<CompletionRecord>(
+      func(record) { record.userId == caller }
+    );
+  };
+
+  public query ({ caller }) func hasCompletedModule(moduleId : Nat) : async Bool {
+    let userId = caller;
+    let found = completions.values().toArray().find(
+      func(record) { record.userId == userId and record.moduleId == moduleId }
+    );
+    switch (found) {
+      case (null) { false };
+      case (?_) { true };
     };
-    var result : [CompletionRecord] = [];
-    for ((_, r) in completions.entries()) {
-      if (r.moduleId == moduleId) {
-        result := result.concat([r]);
+  };
+
+  public query func getAllCompletions() : async [CompletionRecord] {
+    completions.values().toArray();
+  };
+
+  // ── App User Management ──────────────────────────────────────────────────
+
+  public shared ({ caller }) func createAppUser(name : Text, role : Text, department : Text, email : Text) : async Text {
+    let id = "user-" # nextUserId.toText();
+    nextUserId += 1;
+
+    let newUser : AppUser = {
+      id;
+      name;
+      role;
+      department;
+      createdAt = Time.now();
+      permission = "viewer"; // manually created users are pre-approved as viewers
+      loginSource = "";
+      loginAt = 0;
+      email;
+    };
+
+    appUsers.add(id, newUser);
+    assignments.add(id, { userId = id; moduleIds = [] });
+
+    id;
+  };
+
+  public shared ({ caller }) func deleteAppUser(userId : Text) : async () {
+    appUsers.remove(userId);
+    assignments.remove(userId);
+  };
+
+  public shared ({ caller }) func updateAppUserPermission(userId : Text, permission : Text) : async () {
+    switch (appUsers.get(userId)) {
+      case (null) { Runtime.trap("App user not found") };
+      case (?existing) {
+        appUsers.add(userId, { existing with permission });
       };
     };
-    result
   };
 
-  public shared ({ caller }) func getMyCompletions() : async [CompletionRecord] {
-    var result : [CompletionRecord] = [];
-    for ((_, r) in completions.entries()) {
-      if (r.userId == caller) {
-        result := result.concat([r]);
+  // Approve a pending user with a given role ("viewer" or "admin")
+  public shared ({ caller }) func approveUser(userId : Text, role : Text) : async () {
+    switch (appUsers.get(userId)) {
+      case (null) { Runtime.trap("App user not found") };
+      case (?existing) {
+        let permission = if (role == "admin") { "admin" } else { "viewer" };
+        appUsers.add(userId, { existing with permission });
       };
     };
-    result
   };
 
-  public shared ({ caller }) func hasCompletedModule(moduleId : Nat) : async Bool {
-    for ((_, r) in completions.entries()) {
-      if (r.userId == caller and r.moduleId == moduleId) {
-        return true;
+  // Reject a pending user
+  public shared ({ caller }) func rejectUser(userId : Text) : async () {
+    switch (appUsers.get(userId)) {
+      case (null) { Runtime.trap("App user not found") };
+      case (?existing) {
+        appUsers.add(userId, { existing with permission = "rejected" });
       };
     };
-    false
   };
 
-  public shared ({ caller }) func getAllCompletions() : async [CompletionRecord] {
-    if (not AccessControl.isAdmin(accessControlState, caller)) {
-      Runtime.trap("Unauthorized: Only admins can view all completions");
+  // Look up a user by email (for permission checks on login)
+  public query func getUserByEmail(email : Text) : async ?AppUser {
+    appUsers.values().toArray().find(
+      func(user) { user.email == email }
+    );
+  };
+
+  public query func getAppUsers() : async [AppUser] {
+    appUsers.values().toArray();
+  };
+
+  public query func getAppUser(userId : Text) : async ?AppUser {
+    appUsers.get(userId);
+  };
+
+  public shared ({ caller }) func registerGoogleUser(name : Text, email : Text) : async Text {
+    let existingUser = appUsers.values().toArray().find(
+      func(user) { user.email == email }
+    );
+
+    switch (existingUser) {
+      case (?existing) {
+        let updated = {
+          existing with
+          loginSource = "google";
+          loginAt = Time.now()
+        };
+        appUsers.add(updated.id, updated);
+        return updated.id;
+      };
+      case (null) {
+        let id = "user-" # nextUserId.toText();
+        nextUserId += 1;
+
+        let newUser : AppUser = {
+          id;
+          name;
+          role = "";
+          department = "";
+          createdAt = Time.now();
+          permission = "pending"; // NEW: requires admin approval
+          loginSource = "google";
+          loginAt = Time.now();
+          email;
+        };
+
+        appUsers.add(id, newUser);
+        assignments.add(id, { userId = id; moduleIds = [] });
+        return id;
+      };
     };
-    var result : [CompletionRecord] = [];
-    for ((_, r) in completions.entries()) {
-      result := result.concat([r]);
+  };
+
+  // ── Assignment Methods ───────────────────────────────────────────────────
+
+  public shared ({ caller }) func assignModulesToUser(userId : Text, moduleIds : [Text]) : async () {
+    assignments.add(userId, { userId; moduleIds });
+  };
+
+  public query func getAssignmentsForUser(userId : Text) : async [Text] {
+    switch (assignments.get(userId)) {
+      case (null) { [] };
+      case (?record) { record.moduleIds };
     };
-    result
+  };
+
+  public query func getAllAssignments() : async [UserAssignment] {
+    assignments.values().toArray();
+  };
+
+  // ── Category Management ──────────────────────────────────────────────────
+
+  public shared ({ caller }) func addCategory(name : Text) : async () {
+    categories.add(name, name);
+  };
+
+  public shared ({ caller }) func deleteCategory(name : Text) : async () {
+    categories.remove(name);
+
+    let allMappings = moduleToCategory.toArray();
+    for ((moduleId, cat) in allMappings.values()) {
+      if (cat == name) {
+        moduleToCategory.remove(moduleId);
+      };
+    };
+  };
+
+  public query func getCategories() : async [Text] {
+    categories.values().toArray();
+  };
+
+  // ── Module-Category Mapping ──────────────────────────────────────────────
+
+  public shared ({ caller }) func setModuleCategory(moduleId : Text, category : Text) : async () {
+    if (category == "") {
+      moduleToCategory.remove(moduleId);
+    } else {
+      moduleToCategory.add(moduleId, category);
+    };
+  };
+
+  public query func getModuleCategories() : async [(Text, Text)] {
+    moduleToCategory.toArray();
   };
 };

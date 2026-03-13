@@ -48,7 +48,7 @@ type Props = {
       step3: string;
       step4: string;
     };
-  }) => void;
+  }) => void | Promise<void>;
 };
 
 function deriveInitials(name: string): string {
@@ -283,25 +283,28 @@ export default function ModuleViewer({
     const managerSigData = managerSigRef.current?.getDataURL() ?? "";
 
     setIsSubmitting(true);
-    await new Promise((r) => setTimeout(r, 600));
 
-    onComplete({
-      userName: userName.trim(),
-      initials: ackInitials.step1.trim().toUpperCase(),
-      signatureData: teamSigData,
-      managerName: managerName.trim(),
-      managerSignatureData: managerSigData,
-      trainingType,
-      releaseSteps,
-      acknowledgementInitials: {
-        step1: ackInitials.step1.trim().toUpperCase(),
-        step2: ackInitials.step2.trim().toUpperCase(),
-        step3: ackInitials.step3.trim().toUpperCase(),
-        step4: ackInitials.step4.trim().toUpperCase(),
-      },
-    });
+    try {
+      await onComplete({
+        userName: userName.trim(),
+        initials: ackInitials.step1.trim().toUpperCase(),
+        signatureData: teamSigData,
+        managerName: managerName.trim(),
+        managerSignatureData: managerSigData,
+        trainingType,
+        releaseSteps,
+        acknowledgementInitials: {
+          step1: ackInitials.step1.trim().toUpperCase(),
+          step2: ackInitials.step2.trim().toUpperCase(),
+          step3: ackInitials.step3.trim().toUpperCase(),
+          step4: ackInitials.step4.trim().toUpperCase(),
+        },
+      });
+      toast.success("Training module marked as complete!");
+    } catch {
+      toast.error("Failed to submit. Please try again.");
+    }
 
-    toast.success("Training module marked as complete!");
     setIsSubmitting(false);
   };
 
