@@ -282,6 +282,20 @@ actor {
     };
   };
 
+  // Promote userId to admin only if no admins currently exist (bootstrap recovery)
+  public shared func bootstrapAdmin(userId : Text) : async () {
+    let hasAdmin = appUsers.values().toArray().foldLeft(false, func(acc, u) { acc or u.permission == "admin" });
+    if (not hasAdmin) {
+      switch (appUsers.get(userId)) {
+        case (null) { };
+        case (?existing) {
+          appUsers.add(userId, { existing with permission = "admin" });
+        };
+      };
+    };
+  };
+
+
   // Look up a user by email (for permission checks on login)
   public query func getUserByEmail(email : Text) : async ?AppUser {
     appUsers.values().toArray().find(

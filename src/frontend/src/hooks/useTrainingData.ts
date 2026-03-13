@@ -142,6 +142,7 @@ type TrainingActor = {
   registerGoogleUser: (name: string, email: string) => Promise<string>;
   approveUser: (userId: string, role: string) => Promise<void>;
   rejectUser: (userId: string) => Promise<void>;
+  bootstrapAdmin: (userId: string) => Promise<void>;
   // Assignments
   assignModulesToUser: (userId: string, moduleIds: string[]) => Promise<void>;
   getAssignmentsForUser: (userId: string) => Promise<string[]>;
@@ -635,6 +636,12 @@ export function useTrainingData() {
       if (actor) {
         try {
           const userId = await actor.registerGoogleUser(name, email);
+          // Bootstrap: if no admins exist, promote this user to admin
+          try {
+            await actor.bootstrapAdmin(userId);
+          } catch {
+            /* ignore */
+          }
           // Refresh users list from backend
           try {
             const backendUsers = await actor.getAppUsers();
