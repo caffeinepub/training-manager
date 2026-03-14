@@ -10,6 +10,9 @@ import MixinAuthorization "authorization/MixinAuthorization";
 import MixinStorage "blob-storage/Mixin";
 
 actor {
+  // ── PERMANENT OWNER — hardcoded constant, survives every reinstall ──────
+  let OWNER_EMAIL : Text = "tvawdrey4@gmail.com";
+
   // Initialize the access control system
   let accessControlState = AccessControl.initState();
   include MixinAuthorization(accessControlState);
@@ -71,7 +74,7 @@ actor {
   stable var _stableModuleToCategory : [(Text, Text)] = [];
   // Maps completionId -> appUserId for public link completions
   stable var _stablePublicCompletionLinks : [(Nat, Text)] = [];
-  // Permanent owner email — this user is ALWAYS admin on every login
+  // Kept for upgrade compatibility — no longer used for logic (owner is hardcoded above)
   stable var _stableOwnerEmail : Text = "";
 
   // ── Runtime maps (populated from stable on startup) ─────────────────────
@@ -116,38 +119,38 @@ actor {
     _stableCategories := categories.toArray();
     _stableModuleToCategory := moduleToCategory.toArray();
     _stablePublicCompletionLinks := publicCompletionLinks.toArray();
-    // _stableOwnerEmail is already stable, no action needed
+    // _stableOwnerEmail kept for compatibility, no longer written
   };
 
   system func postupgrade() {};
 
-  // ── Owner / permanent admin ──────────────────────────────────────────────
+  // ── Owner helpers — use hardcoded constant, never rely on storage ────────
 
-  // Helper: force a user with this email to admin permission
-  func promoteOwnerEmail(email : Text) {
-    if (email == "") return;
-    
-    let allUsers = appUsers.toArray();
-    for ((uid, u) in allUsers.values()) {
-      if (u.email == email and u.permission != "admin") {
-        appUsers.add(uid, { u with permission = "admin" });
-      };
-    };
+  func isOwnerEmail(email : Text) : Bool {
+    email == OWNER_EMAIL
   };
 
-  // Claim ownership: first caller sets the owner email and becomes admin.
-  // If owner is already set, only the matching email can call this to re-assert admin.
-  // Returns true if the caller is now the owner/admin.
+  func promoteOwnerIfNeeded(user : AppUser) : AppUser {
+    if (isOwnerEmail(user.email) and user.permission != "admin") {
+      { user with permission = "admin" }
+    } else {
+      user
+    }
+  };
+
+  // Legacy claimOwnership kept for frontend compatibility — ownership is now
+  // determined by the hardcoded constant so this just force-promotes if needed.
   public shared func claimOwnership(email : Text) : async Bool {
-    
-    if (_stableOwnerEmail == "") {
-      // First claim — record this email as the permanent owner
-      _stableOwnerEmail := email;
-      promoteOwnerEmail(email);
-      return true;
-    } else if (_stableOwnerEmail == email) {
-      // Owner re-asserting — always re-promote
-      promoteOwnerEmail(email);
+    if (isOwnerEmail(email)) {
+      let found = appUsers.values().toArray().find(func(u) { u.email == email });
+      switch (found) {
+        case (?u) {
+          if (u.permission != "admin") {
+            appUsers.add(u.id, { u with permission = "admin" });
+          };
+        };
+        case (null) {};
+      };
       return true;
     };
     return false;
@@ -305,7 +308,7 @@ actor {
       role;
       department;
       createdAt = Time.now();
-      permission = "viewer"; // manually created users are pre-approved as viewers
+      permission = "viewer";
       loginSource = "";
       loginAt = 0;
       email;
@@ -326,12 +329,15 @@ actor {
     switch (appUsers.get(userId)) {
       case (null) { Runtime.trap("App user not found") };
       case (?existing) {
+        // Never demote the owner
+        if (isOwnerEmail(existing.email) and permission != "admin") {
+          return;
+        };
         appUsers.add(userId, { existing with permission });
       };
     };
   };
 
-  // Approve a pending user with a given role ("viewer" or "admin")
   public shared ({ caller }) func approveUser(userId : Text, role : Text) : async () {
     switch (appUsers.get(userId)) {
       case (null) { Runtime.trap("App user not found") };
@@ -342,17 +348,16 @@ actor {
     };
   };
 
-  // Reject a pending user
   public shared ({ caller }) func rejectUser(userId : Text) : async () {
     switch (appUsers.get(userId)) {
       case (null) { Runtime.trap("App user not found") };
       case (?existing) {
+        if (isOwnerEmail(existing.email)) { return; };
         appUsers.add(userId, { existing with permission = "rejected" });
       };
     };
   };
 
-  // Promote userId to admin only if no admins currently exist (bootstrap recovery)
   public shared func bootstrapAdmin(userId : Text) : async () {
     let hasAdmin = appUsers.values().toArray().foldLeft(false, func(acc, u) { acc or u.permission == "admin" });
     if (not hasAdmin) {
@@ -365,35 +370,36 @@ actor {
     };
   };
 
-  // Look up a user by email (for permission checks on login)
   public query func getUserByEmail(email : Text) : async ?AppUser {
-    appUsers.values().toArray().find(
+    let found = appUsers.values().toArray().find(
       func(user) { user.email == email }
     );
+    switch (found) {
+      case (?u) { ?promoteOwnerIfNeeded(u) };
+      case (null) { null };
+    };
   };
 
   public query func getAppUsers() : async [AppUser] {
-    appUsers.values().toArray();
+    appUsers.values().toArray().map(promoteOwnerIfNeeded);
   };
 
   public query func getAppUser(userId : Text) : async ?AppUser {
-    appUsers.get(userId);
+    switch (appUsers.get(userId)) {
+      case (?u) { ?promoteOwnerIfNeeded(u) };
+      case (null) { null };
+    };
   };
 
   public shared ({ caller }) func registerGoogleUser(name : Text, email : Text) : async Text {
-    
     let existingUser = appUsers.values().toArray().find(
       func(user) { user.email == email }
     );
 
     switch (existingUser) {
       case (?existing) {
-        // If this email is the permanent owner, always keep/restore admin
-        let perm = if (_stableOwnerEmail == email and _stableOwnerEmail != "") {
-          "admin"
-        } else {
-          existing.permission
-        };
+        // Owner always gets admin, no exceptions
+        let perm = if (isOwnerEmail(email)) { "admin" } else { existing.permission };
         let updated = {
           existing with
           permission = perm;
@@ -407,12 +413,8 @@ actor {
         let id = "user-" # nextUserId.toText();
         nextUserId += 1;
 
-        // If this is the owner email, grant admin immediately
-        let initPerm = if (_stableOwnerEmail == email and _stableOwnerEmail != "") {
-          "admin"
-        } else {
-          "pending"
-        };
+        // Owner always gets admin immediately, even on first login after reinstall
+        let initPerm = if (isOwnerEmail(email)) { "admin" } else { "pending" };
 
         let newUser : AppUser = {
           id;

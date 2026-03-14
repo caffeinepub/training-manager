@@ -138,6 +138,12 @@ export const idlService = IDL.Service({
       [IDL.Nat],
       [],
     ),
+  'submitPublicCompletionForUser' : IDL.Func(
+      [IDL.Nat, IDL.Text, IDL.Text, IDL.Text, IDL.Text],
+      [IDL.Nat],
+      [],
+    ),
+  'getPublicCompletionLinks' : IDL.Func([], [IDL.Vec(IDL.Tuple([IDL.Nat, IDL.Text]))], ['query']),
   'updateAppUserPermission' : IDL.Func([IDL.Text, IDL.Text], [], []),
   'updateModule' : IDL.Func([IDL.Nat, IDL.Text, IDL.Text, IDL.Text], [], []),
 });
@@ -275,6 +281,12 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Nat],
         [],
       ),
+    'submitPublicCompletionForUser' : IDL.Func(
+        [IDL.Nat, IDL.Text, IDL.Text, IDL.Text, IDL.Text],
+        [IDL.Nat],
+        [],
+      ),
+    'getPublicCompletionLinks' : IDL.Func([], [IDL.Vec(IDL.Tuple([IDL.Nat, IDL.Text]))], ['query']),
     'updateAppUserPermission' : IDL.Func([IDL.Text, IDL.Text], [], []),
     'updateModule' : IDL.Func([IDL.Nat, IDL.Text, IDL.Text, IDL.Text], [], []),
   });

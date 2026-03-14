@@ -176,6 +176,8 @@ export interface backendInterface {
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
     setModuleCategory(moduleId: string, category: string): Promise<void>;
     submitCompletion(moduleId: bigint, userName: string, initials: string, signatureData: string): Promise<bigint>;
+    submitPublicCompletionForUser(moduleId: bigint, assignedUserId: string, userName: string, initials: string, signatureData: string): Promise<bigint>;
+    getPublicCompletionLinks(): Promise<Array<[bigint, string]>>;
     updateAppUserPermission(userId: string, permission: string): Promise<void>;
     updateModule(id: bigint, title: string, description: string, googleDocUrl: string): Promise<void>;
 }
@@ -669,6 +671,34 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.submitCompletion(arg0, arg1, arg2, arg3);
+            return result;
+        }
+    }
+    async submitPublicCompletionForUser(arg0: bigint, arg1: string, arg2: string, arg3: string, arg4: string): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await (this.actor as any).submitPublicCompletionForUser(arg0, arg1, arg2, arg3, arg4);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await (this.actor as any).submitPublicCompletionForUser(arg0, arg1, arg2, arg3, arg4);
+            return result;
+        }
+    }
+    async getPublicCompletionLinks(): Promise<Array<[bigint, string]>> {
+        if (this.processError) {
+            try {
+                const result = await (this.actor as any).getPublicCompletionLinks();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await (this.actor as any).getPublicCompletionLinks();
             return result;
         }
     }

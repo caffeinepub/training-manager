@@ -102,6 +102,8 @@ export interface _SERVICE {
   'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
   'setModuleCategory' : ActorMethod<[string, string], undefined>,
   'submitCompletion' : ActorMethod<[bigint, string, string, string], bigint>,
+  'submitPublicCompletionForUser' : ActorMethod<[bigint, string, string, string, string], bigint>,
+  'getPublicCompletionLinks' : ActorMethod<[], Array<[bigint, string]>>,
   'updateAppUserPermission' : ActorMethod<[string, string], undefined>,
   'updateModule' : ActorMethod<[bigint, string, string, string], undefined>,
 }

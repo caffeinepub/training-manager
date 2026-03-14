@@ -123,7 +123,7 @@ export default function PublicModuleView({ moduleId }: Props) {
       );
       if (assignedUserId?.trim()) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (actor as any).submitPublicCompletionForUser(
+        await actor.submitPublicCompletionForUser(
           module.id,
           assignedUserId.trim(),
           userName.trim(),
