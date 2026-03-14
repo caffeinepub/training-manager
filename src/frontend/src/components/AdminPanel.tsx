@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -21,6 +22,12 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -38,17 +45,27 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type {
   AppUser,
   CompletionRecord,
   TrainingModule,
 } from "@/hooks/useTrainingData";
+import { exportCompletionPdf } from "@/utils/exportPdf";
+import { copyPublicModuleLink } from "@/utils/shareLinks";
 import {
   CheckCircle2,
   ClipboardList,
   ExternalLink,
   Eye,
+  FileDown,
   FileText,
+  Globe,
   LayoutGrid,
   Link2,
   Pencil,
@@ -57,6 +74,7 @@ import {
   Tag,
   Trash2,
   UserCheck,
+  UserPlus,
   Users,
 } from "lucide-react";
 
@@ -128,6 +146,8 @@ type Props = {
   ) => void;
   approveUser: (userId: string, role: string) => Promise<void>;
   rejectUser: (userId: string) => Promise<void>;
+  assignments: { userId: string; moduleIds: string[] }[];
+  publicCompletionLinks: Array<[bigint, string]>;
 };
 
 const EMPTY_FORM: ModuleFormData = {
@@ -155,6 +175,8 @@ export default function AdminPanel({
   updateUserPermission,
   approveUser,
   rejectUser,
+  assignments,
+  publicCompletionLinks,
 }: Props) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingModule, setEditingModule] = useState<TrainingModule | null>(
@@ -165,6 +187,8 @@ export default function AdminPanel({
   const [isSaving, setIsSaving] = useState(false);
   const [newCategoryInput, setNewCategoryInput] = useState("");
   const [rejectTarget, setRejectTarget] = useState<AppUser | null>(null);
+  const [assignTarget, setAssignTarget] = useState<TrainingModule | null>(null);
+  const [assignUserIds, setAssignUserIds] = useState<string[]>([]);
 
   const openCreate = () => {
     setEditingModule(null);
@@ -471,6 +495,139 @@ export default function AdminPanel({
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-1">
+                              {(() => {
+                                const assignedUsers = assignments
+                                  .filter((a) =>
+                                    a.moduleIds.includes(module.id),
+                                  )
+                                  .map((a) =>
+                                    users.find((u) => u.id === a.userId),
+                                  )
+                                  .filter(Boolean) as typeof users;
+                                const noAssigned = assignedUsers.length === 0;
+                                const singleUser = assignedUsers.length === 1;
+
+                                if (noAssigned) {
+                                  return (
+                                    <TooltipProvider>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <span>
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              disabled
+                                              data-ocid={`admin.module.copy_public_link_button.${idx + 1}`}
+                                              className="h-8 w-8 p-0 shrink-0 opacity-30 cursor-not-allowed"
+                                            >
+                                              <Globe className="w-4 h-4" />
+                                            </Button>
+                                          </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          <p>
+                                            Assign this module to a user first
+                                          </p>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </TooltipProvider>
+                                  );
+                                }
+
+                                if (singleUser) {
+                                  return (
+                                    <TooltipProvider>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => {
+                                              copyPublicModuleLink(
+                                                module.id,
+                                                assignedUsers[0].id,
+                                              );
+                                              toast.success(
+                                                "Public link copied to clipboard",
+                                              );
+                                            }}
+                                            data-ocid={`admin.module.copy_public_link_button.${idx + 1}`}
+                                            className="h-8 w-8 p-0 shrink-0"
+                                          >
+                                            <Globe className="w-4 h-4" />
+                                          </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          <p>
+                                            Copy public link for{" "}
+                                            {assignedUsers[0].name}
+                                          </p>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </TooltipProvider>
+                                  );
+                                }
+
+                                // Multiple users — show popover
+                                return (
+                                  <Popover>
+                                    <TooltipProvider>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <PopoverTrigger asChild>
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              data-ocid={`admin.module.copy_public_link_button.${idx + 1}`}
+                                              className="h-8 w-8 p-0 shrink-0"
+                                            >
+                                              <Globe className="w-4 h-4" />
+                                            </Button>
+                                          </PopoverTrigger>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          <p>Copy public link</p>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </TooltipProvider>
+                                    <PopoverContent
+                                      className="w-52 p-2"
+                                      align="start"
+                                    >
+                                      <p
+                                        className="text-xs font-semibold mb-2 px-1"
+                                        style={{
+                                          color:
+                                            "oklch(var(--muted-foreground))",
+                                        }}
+                                      >
+                                        Choose assignee
+                                      </p>
+                                      <div className="flex flex-col gap-1">
+                                        {assignedUsers.map((u) => (
+                                          <Button
+                                            key={u.id}
+                                            variant="ghost"
+                                            size="sm"
+                                            className="w-full justify-start text-xs h-7"
+                                            onClick={() => {
+                                              copyPublicModuleLink(
+                                                module.id,
+                                                u.id,
+                                              );
+                                              toast.success(
+                                                `Public link copied for ${u.name}`,
+                                              );
+                                            }}
+                                          >
+                                            {u.name}
+                                          </Button>
+                                        ))}
+                                      </div>
+                                    </PopoverContent>
+                                  </Popover>
+                                );
+                              })()}
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -480,6 +637,26 @@ export default function AdminPanel({
                                 title="View module"
                               >
                                 <Eye className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  const alreadyAssigned = users
+                                    .filter((u) =>
+                                      getAssignedModuleIds(u.id).includes(
+                                        module.id,
+                                      ),
+                                    )
+                                    .map((u) => u.id);
+                                  setAssignUserIds(alreadyAssigned);
+                                  setAssignTarget(module);
+                                }}
+                                data-ocid={`admin.assign_module_button.${idx + 1}`}
+                                className="h-8 w-8 p-0 shrink-0"
+                                title="Assign module to users"
+                              >
+                                <UserPlus className="w-4 h-4" />
                               </Button>
                               <Button
                                 variant="ghost"
@@ -583,6 +760,9 @@ export default function AdminPanel({
                     <TableHead className="font-display font-semibold text-xs uppercase tracking-wider w-[140px]">
                       Date
                     </TableHead>
+                    <TableHead className="font-display font-semibold text-xs uppercase tracking-wider w-[80px]">
+                      PDF
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -657,6 +837,32 @@ export default function AdminPanel({
                           </span>
                         </div>
                       </TableCell>
+                      <TableCell>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                data-ocid={`admin.completions.download.${idx + 1}`}
+                                onClick={() => {
+                                  const mod = modules.find(
+                                    (m) => m.id === rec.moduleId,
+                                  );
+                                  if (mod) exportCompletionPdf(mod, rec);
+                                  else toast.error("Module not found");
+                                }}
+                              >
+                                <FileDown className="w-3.5 h-3.5" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Download PDF</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -671,6 +877,8 @@ export default function AdminPanel({
             users={users}
             modules={modules}
             completions={completions}
+            allCompletions={completions}
+            publicCompletionLinks={publicCompletionLinks}
             getAssignedModuleIds={getAssignedModuleIds}
             onCreate={onCreateUser}
             onDelete={onDeleteUser}
@@ -1303,6 +1511,111 @@ export default function AdminPanel({
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Assign Module Dialog ── */}
+      <Dialog
+        open={!!assignTarget}
+        onOpenChange={(open) => {
+          if (!open) setAssignTarget(null);
+        }}
+      >
+        <DialogContent
+          className="max-w-md"
+          data-ocid="admin.assign_module.dialog"
+        >
+          <DialogHeader>
+            <DialogTitle className="font-display">
+              Assign Module: {assignTarget?.title}
+            </DialogTitle>
+            <DialogDescription className="font-body text-sm">
+              Select the users you want to assign this module to.
+            </DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="max-h-72 pr-2">
+            <div className="space-y-2 py-2">
+              {users.length === 0 ? (
+                <p
+                  className="text-sm font-body text-center py-4"
+                  style={{ color: "oklch(var(--muted-foreground))" }}
+                >
+                  No users available.
+                </p>
+              ) : (
+                users.map((user, userIdx) => {
+                  const isChecked = assignUserIds.includes(user.id);
+                  return (
+                    <div
+                      key={user.id}
+                      className="flex items-center gap-3 px-2 py-1.5 rounded-md hover:bg-secondary/40 transition-colors"
+                    >
+                      <Checkbox
+                        id={`assign-user-${user.id}`}
+                        checked={isChecked}
+                        onCheckedChange={(checked) => {
+                          setAssignUserIds((prev) =>
+                            checked
+                              ? [...prev, user.id]
+                              : prev.filter((id) => id !== user.id),
+                          );
+                        }}
+                        data-ocid={`admin.assign_module.user_checkbox.${userIdx + 1}`}
+                      />
+                      <label
+                        htmlFor={`assign-user-${user.id}`}
+                        className="flex-1 text-sm font-body cursor-pointer"
+                        style={{ color: "oklch(var(--foreground))" }}
+                      >
+                        {user.name}
+                        {user.department && (
+                          <span
+                            className="ml-1.5 text-xs"
+                            style={{ color: "oklch(var(--muted-foreground))" }}
+                          >
+                            · {user.department}
+                          </span>
+                        )}
+                      </label>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </ScrollArea>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setAssignTarget(null)}
+              data-ocid="admin.assign_module.cancel_button"
+              className="font-body"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!assignTarget) return;
+                for (const user of users) {
+                  const currentIds = getAssignedModuleIds(user.id);
+                  const shouldAssign = assignUserIds.includes(user.id);
+                  const isAssigned = currentIds.includes(assignTarget.id);
+                  if (shouldAssign && !isAssigned) {
+                    onAssignModules(user.id, [...currentIds, assignTarget.id]);
+                  } else if (!shouldAssign && isAssigned) {
+                    onAssignModules(
+                      user.id,
+                      currentIds.filter((id) => id !== assignTarget.id),
+                    );
+                  }
+                }
+                setAssignTarget(null);
+              }}
+              data-ocid="admin.assign_module.save_button"
+              className="font-body"
+            >
+              Save Assignments
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

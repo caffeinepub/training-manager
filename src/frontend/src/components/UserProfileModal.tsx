@@ -23,14 +23,15 @@ import type {
   CompletionRecord,
   TrainingModule,
 } from "@/hooks/useTrainingData";
+import { exportCompletionPdf } from "@/utils/exportPdf";
 import { buildShareUrl } from "@/utils/shareLinks";
 import {
-  Award,
   BookOpen,
   Briefcase,
   Building2,
   CheckCircle2,
   Clock,
+  FileDown,
   FileText,
   Loader2,
   Share2,
@@ -39,203 +40,6 @@ import {
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-// Category hues for skill badge coloring
-const SKILL_CATEGORY_HUES: Record<string, number> = {};
-const HUE_CYCLE = [255, 145, 80, 300, 185, 30, 220];
-let hueIndex = 0;
-
-function getHueForCategory(cat: string): number {
-  if (cat === "General") return -1; // neutral
-  if (!(cat in SKILL_CATEGORY_HUES)) {
-    SKILL_CATEGORY_HUES[cat] = HUE_CYCLE[hueIndex % HUE_CYCLE.length];
-    hueIndex++;
-  }
-  return SKILL_CATEGORY_HUES[cat];
-}
-
-type SkillsSectionProps = {
-  user: AppUser;
-  modules: TrainingModule[];
-  assignedModuleIds: string[];
-  completions: CompletionRecord[];
-  isCompleted: (moduleId: string) => boolean;
-};
-
-function SkillsSection({
-  modules,
-  assignedModuleIds,
-  isCompleted,
-}: SkillsSectionProps) {
-  const assignedModules = modules.filter((m) =>
-    assignedModuleIds.includes(m.id),
-  );
-  const completedModules = assignedModules.filter((m) => isCompleted(m.id));
-
-  const totalAssigned = assignedModules.length;
-  const totalCompleted = completedModules.length;
-  const pct =
-    totalAssigned > 0 ? Math.round((totalCompleted / totalAssigned) * 100) : 0;
-
-  // Group completed modules by category
-  const grouped: Record<string, TrainingModule[]> = {};
-  for (const m of completedModules) {
-    const cat = m.category?.trim() || "General";
-    if (!grouped[cat]) grouped[cat] = [];
-    grouped[cat].push(m);
-  }
-  const groupEntries = Object.entries(grouped).sort(([a], [b]) => {
-    if (a === "General") return 1;
-    if (b === "General") return -1;
-    return a.localeCompare(b);
-  });
-
-  return (
-    <>
-      <Separator style={{ background: "oklch(var(--border))" }} />
-
-      <div>
-        {/* Section header */}
-        <div className="flex items-center gap-2 mb-3">
-          <Award className="w-4 h-4" style={{ color: "oklch(0.62 0.14 80)" }} />
-          <span
-            className="font-display font-semibold text-sm"
-            style={{ color: "oklch(var(--foreground))" }}
-          >
-            Skills & Progress
-          </span>
-        </div>
-
-        {totalAssigned === 0 ? (
-          <div
-            className="py-5 text-center rounded-lg"
-            style={{
-              background: "oklch(var(--secondary))",
-              border: "1px dashed oklch(var(--border))",
-            }}
-          >
-            <p
-              className="text-xs font-body"
-              style={{ color: "oklch(var(--muted-foreground))" }}
-            >
-              No training modules assigned yet.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {/* Progress summary */}
-            <div
-              className="rounded-lg px-4 py-3 space-y-2"
-              style={{ background: "oklch(var(--secondary))" }}
-            >
-              <div className="flex items-center justify-between text-xs font-body">
-                <span style={{ color: "oklch(var(--muted-foreground))" }}>
-                  {totalCompleted} of {totalAssigned} modules completed
-                </span>
-                <span
-                  className="font-display font-bold"
-                  style={{
-                    color:
-                      pct >= 80
-                        ? "oklch(0.52 0.14 145)"
-                        : pct >= 40
-                          ? "oklch(0.55 0.13 80)"
-                          : "oklch(0.42 0.10 255)",
-                  }}
-                >
-                  {pct}%
-                </span>
-              </div>
-              <div
-                className="h-2 rounded-full overflow-hidden"
-                style={{ background: "oklch(0.88 0.015 240)" }}
-              >
-                <div
-                  className="h-full rounded-full transition-all duration-500"
-                  style={{
-                    width: `${pct}%`,
-                    background:
-                      pct >= 80
-                        ? "oklch(0.65 0.14 145)"
-                        : pct >= 40
-                          ? "oklch(0.70 0.14 85)"
-                          : "oklch(0.55 0.12 255)",
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* Skill badges grouped by category */}
-            {totalCompleted === 0 ? (
-              <p
-                className="text-xs font-body text-center py-2"
-                style={{ color: "oklch(var(--muted-foreground))" }}
-              >
-                No skills earned yet — complete training modules to build your
-                skill profile.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {groupEntries.map(([cat, mods]) => {
-                  const hue = getHueForCategory(cat);
-                  return (
-                    <div key={cat}>
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span
-                          className="text-xs font-display font-semibold uppercase tracking-wider"
-                          style={{
-                            color:
-                              hue < 0
-                                ? "oklch(0.52 0.03 245)"
-                                : `oklch(0.42 0.12 ${hue})`,
-                          }}
-                        >
-                          {cat}
-                        </span>
-                        <div
-                          className="flex-1 h-px"
-                          style={{ background: "oklch(var(--border))" }}
-                        />
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {mods.map((m) => (
-                          <span
-                            key={m.id}
-                            className="inline-flex items-center gap-1 text-xs font-body font-medium px-2.5 py-1 rounded-full"
-                            style={
-                              hue < 0
-                                ? {
-                                    background: "oklch(0.93 0.015 240)",
-                                    color: "oklch(0.38 0.025 245)",
-                                    border:
-                                      "1px solid oklch(0.85 0.015 240 / 60%)",
-                                  }
-                                : {
-                                    background: `oklch(0.93 0.04 ${hue})`,
-                                    color: `oklch(0.32 0.12 ${hue})`,
-                                    border: `1px solid oklch(0.75 0.08 ${hue} / 45%)`,
-                                  }
-                            }
-                          >
-                            <CheckCircle2
-                              className="w-3 h-3 shrink-0"
-                              style={{ opacity: 0.7 }}
-                            />
-                            {m.title}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </>
-  );
-}
-
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -243,6 +47,8 @@ type Props = {
   modules: TrainingModule[];
   assignedModuleIds: string[];
   completions: CompletionRecord[];
+  allCompletions: CompletionRecord[];
+  publicCompletionLinks: Array<[bigint, string]>;
   onSave: (userId: string, moduleIds: string[]) => void;
 };
 
@@ -253,6 +59,8 @@ export default function UserProfileModal({
   modules,
   assignedModuleIds,
   completions,
+  allCompletions,
+  publicCompletionLinks,
   onSave,
 }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -294,8 +102,29 @@ export default function UserProfileModal({
     onOpenChange(false);
   };
 
-  const isCompleted = (moduleId: string) =>
-    completions.some((c) => c.moduleId === moduleId);
+  const isCompleted = (moduleId: string) => {
+    if (completions.some((c) => c.moduleId === moduleId)) return true;
+    if (!user) return false;
+    return publicCompletionLinks.some(
+      ([completionId, linkedUserId]) =>
+        linkedUserId === user.id &&
+        allCompletions.some(
+          (c) =>
+            String(c.id) === String(completionId) && c.moduleId === moduleId,
+        ),
+    );
+  };
+
+  // Build assigned/completed lists from assignedModuleIds (not selectedIds)
+  const assignedModules = modules.filter((m) =>
+    assignedModuleIds.includes(m.id),
+  );
+  const pendingModules = assignedModules.filter((m) => !isCompleted(m.id));
+  const completedModules = assignedModules.filter((m) => isCompleted(m.id));
+  const totalAssigned = assignedModules.length;
+  const totalCompleted = completedModules.length;
+  const pct =
+    totalAssigned > 0 ? Math.round((totalCompleted / totalAssigned) * 100) : 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -436,7 +265,7 @@ export default function UserProfileModal({
             </div>
           ) : (
             <ScrollArea
-              className="h-[220px] rounded-lg border"
+              className="h-[180px] rounded-lg border"
               style={{ borderColor: "oklch(var(--border))" }}
             >
               <div className="p-2 space-y-1">
@@ -475,14 +304,12 @@ export default function UserProfileModal({
                         }
                       />
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="text-sm font-display font-semibold truncate"
-                            style={{ color: "oklch(var(--foreground))" }}
-                          >
-                            {module.title}
-                          </span>
-                        </div>
+                        <span
+                          className="text-sm font-display font-semibold truncate block"
+                          style={{ color: "oklch(var(--foreground))" }}
+                        >
+                          {module.title}
+                        </span>
                       </div>
                       {completed ? (
                         <Badge
@@ -552,14 +379,262 @@ export default function UserProfileModal({
           )}
         </div>
 
-        {/* ── Skills & Progress ── */}
-        <SkillsSection
-          user={user}
-          modules={modules}
-          assignedModuleIds={Array.from(selectedIds)}
-          completions={completions}
-          isCompleted={isCompleted}
-        />
+        <Separator style={{ background: "oklch(var(--border))" }} />
+
+        {/* ── Training Progress ── */}
+        <div className="space-y-3">
+          {/* Progress bar summary */}
+          {totalAssigned > 0 && (
+            <div
+              className="rounded-lg px-4 py-3 space-y-2"
+              style={{ background: "oklch(var(--secondary))" }}
+            >
+              <div className="flex items-center justify-between text-xs font-body">
+                <span style={{ color: "oklch(var(--muted-foreground))" }}>
+                  {totalCompleted} of {totalAssigned} modules completed
+                </span>
+                <span
+                  className="font-display font-bold"
+                  style={{
+                    color:
+                      pct >= 80
+                        ? "oklch(0.52 0.14 145)"
+                        : pct >= 40
+                          ? "oklch(0.55 0.13 80)"
+                          : "oklch(0.42 0.10 255)",
+                  }}
+                >
+                  {pct}%
+                </span>
+              </div>
+              <div
+                className="h-2 rounded-full overflow-hidden"
+                style={{ background: "oklch(0.88 0.015 240)" }}
+              >
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{
+                    width: `${pct}%`,
+                    background:
+                      pct >= 80
+                        ? "oklch(0.65 0.14 145)"
+                        : pct >= 40
+                          ? "oklch(0.70 0.14 85)"
+                          : "oklch(0.55 0.12 255)",
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Assigned (Pending) section */}
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <Clock
+                className="w-4 h-4"
+                style={{ color: "oklch(0.55 0.13 80)" }}
+              />
+              <span
+                className="font-display font-semibold text-sm"
+                style={{ color: "oklch(0.55 0.13 80)" }}
+              >
+                Assigned
+              </span>
+              <span
+                className="ml-auto text-xs font-body font-semibold px-2 py-0.5 rounded-full"
+                style={{
+                  background: "oklch(0.97 0.06 85)",
+                  color: "oklch(0.45 0.1 80)",
+                  border: "1px solid oklch(0.78 0.14 80 / 40%)",
+                }}
+              >
+                {pendingModules.length}
+              </span>
+            </div>
+
+            {pendingModules.length === 0 ? (
+              <div
+                className="py-3 px-4 rounded-lg text-center"
+                data-ocid="profile.assigned.empty_state"
+                style={{
+                  background: "oklch(var(--secondary))",
+                  border: "1px dashed oklch(var(--border))",
+                }}
+              >
+                <p
+                  className="text-xs font-body"
+                  style={{ color: "oklch(var(--muted-foreground))" }}
+                >
+                  No pending modules
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1" data-ocid="profile.assigned.list">
+                {pendingModules.map((module, idx) => (
+                  <div
+                    key={module.id}
+                    data-ocid={`profile.assigned.item.${idx + 1}`}
+                    className="flex items-center gap-2 px-3 py-2 rounded-md"
+                    style={{
+                      background: "oklch(0.97 0.06 85 / 30%)",
+                      border: "1px solid oklch(0.78 0.14 80 / 25%)",
+                    }}
+                  >
+                    <Clock
+                      className="w-3.5 h-3.5 shrink-0"
+                      style={{ color: "oklch(0.60 0.12 80)" }}
+                    />
+                    <span
+                      className="flex-1 text-sm font-body font-medium truncate"
+                      style={{ color: "oklch(var(--foreground))" }}
+                    >
+                      {module.title}
+                    </span>
+                    {module.category && (
+                      <span
+                        className="text-xs font-body px-2 py-0.5 rounded-full shrink-0"
+                        style={{
+                          background: "oklch(0.92 0.03 245)",
+                          color: "oklch(0.42 0.06 245)",
+                          border: "1px solid oklch(0.82 0.04 245 / 50%)",
+                        }}
+                      >
+                        {module.category}
+                      </span>
+                    )}
+                    <span
+                      className="text-xs font-body font-semibold px-2 py-0.5 rounded-full shrink-0"
+                      style={{
+                        background: "oklch(0.97 0.06 85)",
+                        color: "oklch(0.45 0.1 80)",
+                        border: "1px solid oklch(0.78 0.14 80 / 40%)",
+                      }}
+                    >
+                      Pending
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Completed section */}
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <CheckCircle2
+                className="w-4 h-4"
+                style={{ color: "oklch(0.52 0.14 145)" }}
+              />
+              <span
+                className="font-display font-semibold text-sm"
+                style={{ color: "oklch(0.52 0.14 145)" }}
+              >
+                Completed
+              </span>
+              <span
+                className="ml-auto text-xs font-body font-semibold px-2 py-0.5 rounded-full"
+                style={{
+                  background: "oklch(0.93 0.05 145)",
+                  color: "oklch(0.35 0.12 145)",
+                  border: "1px solid oklch(0.72 0.14 145 / 40%)",
+                }}
+              >
+                {completedModules.length}
+              </span>
+            </div>
+
+            {completedModules.length === 0 ? (
+              <div
+                className="py-3 px-4 rounded-lg text-center"
+                data-ocid="profile.completed.empty_state"
+                style={{
+                  background: "oklch(var(--secondary))",
+                  border: "1px dashed oklch(var(--border))",
+                }}
+              >
+                <p
+                  className="text-xs font-body"
+                  style={{ color: "oklch(var(--muted-foreground))" }}
+                >
+                  No completed modules yet
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1" data-ocid="profile.completed.list">
+                {completedModules.map((module, idx) => (
+                  <div
+                    key={module.id}
+                    data-ocid={`profile.completed.item.${idx + 1}`}
+                    className="flex items-center gap-2 px-3 py-2 rounded-md"
+                    style={{
+                      background: "oklch(0.93 0.05 145 / 30%)",
+                      border: "1px solid oklch(0.72 0.14 145 / 25%)",
+                    }}
+                  >
+                    <CheckCircle2
+                      className="w-3.5 h-3.5 shrink-0"
+                      style={{ color: "oklch(0.52 0.14 145)" }}
+                    />
+                    <span
+                      className="flex-1 text-sm font-body font-medium truncate"
+                      style={{ color: "oklch(var(--foreground))" }}
+                    >
+                      {module.title}
+                    </span>
+                    {module.category && (
+                      <span
+                        className="text-xs font-body px-2 py-0.5 rounded-full shrink-0"
+                        style={{
+                          background: "oklch(0.92 0.03 245)",
+                          color: "oklch(0.42 0.06 245)",
+                          border: "1px solid oklch(0.82 0.04 245 / 50%)",
+                        }}
+                      >
+                        {module.category}
+                      </span>
+                    )}
+                    <span
+                      className="inline-flex items-center gap-1 text-xs font-body font-semibold px-2 py-0.5 rounded-full shrink-0"
+                      style={{
+                        background: "oklch(0.93 0.05 145)",
+                        color: "oklch(0.35 0.12 145)",
+                        border: "1px solid oklch(0.72 0.14 145 / 40%)",
+                      }}
+                    >
+                      <CheckCircle2 className="w-2.5 h-2.5" />
+                      Completed
+                    </span>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 shrink-0"
+                            data-ocid={`profile.completed.download.${idx + 1}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const comp = completions.find(
+                                (c) => c.moduleId === module.id,
+                              );
+                              if (comp) exportCompletionPdf(module, comp);
+                              else toast.error("Completion record not found");
+                            }}
+                          >
+                            <FileDown className="w-3 h-3" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Download PDF</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
 
         <DialogFooter className="gap-2 mt-2">
           <Button

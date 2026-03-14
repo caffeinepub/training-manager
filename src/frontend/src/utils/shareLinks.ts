@@ -7,10 +7,20 @@ export function copyShareLink(moduleId: string, userId: string): void {
   navigator.clipboard.writeText(url);
 }
 
-export function buildPublicModuleUrl(moduleId: string): string {
-  return `${window.location.origin}${window.location.pathname}?publicModule=${encodeURIComponent(moduleId)}`;
+export function buildPublicModuleUrl(
+  moduleId: string,
+  assignedUserId?: string,
+): string {
+  const base = `${window.location.origin}${window.location.pathname}?publicModule=${encodeURIComponent(moduleId)}`;
+  if (assignedUserId) {
+    return `${base}&assignedUserId=${encodeURIComponent(assignedUserId)}`;
+  }
+  return base;
 }
 
-export function copyPublicModuleLink(moduleId: string): void {
-  navigator.clipboard.writeText(buildPublicModuleUrl(moduleId));
+export function copyPublicModuleLink(
+  moduleId: string,
+  assignedUserId?: string,
+): void {
+  navigator.clipboard.writeText(buildPublicModuleUrl(moduleId, assignedUserId));
 }

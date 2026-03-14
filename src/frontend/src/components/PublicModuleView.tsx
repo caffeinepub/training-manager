@@ -3,13 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useActor } from "@/hooks/useActor";
 import { textToSignatureImage } from "@/utils/signatureUtils";
-import {
-  CheckCircle2,
-  ExternalLink,
-  GraduationCap,
-  Loader2,
-  PenLine,
-} from "lucide-react";
+import { CheckCircle2, GraduationCap, Loader2, PenLine } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -104,24 +98,46 @@ export default function PublicModuleView({ moduleId }: Props) {
     setSignature(userName);
   };
 
+  const assignedUserId = new URLSearchParams(window.location.search).get(
+    "assignedUserId",
+  );
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userName.trim()) {
       toast.error("Please enter your name.");
       return;
     }
-    if (!actor || !module) return;
+    if (!module) {
+      toast.error("Module not found. Please refresh and try again.");
+      return;
+    }
+    if (!actor) {
+      toast.error("Connection not ready. Please wait a moment and try again.");
+      return;
+    }
     setIsSubmitting(true);
     try {
       const sigImage = textToSignatureImage(
         signature.trim() || userName.trim(),
       );
-      await actor.submitCompletion(
-        module.id,
-        userName.trim(),
-        initials,
-        sigImage,
-      );
+      if (assignedUserId?.trim()) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (actor as any).submitPublicCompletionForUser(
+          module.id,
+          assignedUserId.trim(),
+          userName.trim(),
+          initials,
+          sigImage,
+        );
+      } else {
+        await actor.submitCompletion(
+          module.id,
+          userName.trim(),
+          initials,
+          sigImage,
+        );
+      }
       setIsSuccess(true);
     } catch (err) {
       console.error(err);
@@ -320,22 +336,6 @@ export default function PublicModuleView({ moduleId }: Props) {
             >
               {module.description}
             </p>
-
-            {module.googleDocUrl && (
-              <a
-                href={module.googleDocUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg text-sm font-display font-semibold transition-opacity hover:opacity-80"
-                style={{
-                  background: "oklch(var(--primary))",
-                  color: "oklch(var(--primary-foreground))",
-                }}
-              >
-                <ExternalLink className="w-4 h-4" />
-                Open Training Document
-              </a>
-            )}
           </div>
 
           {/* Google Doc embed */}
@@ -348,7 +348,7 @@ export default function PublicModuleView({ moduleId }: Props) {
                 src={embedUrl}
                 title="Training Document Preview"
                 className="w-full"
-                style={{ height: "480px", border: 0 }}
+                style={{ height: "800px", border: 0 }}
                 allowFullScreen
               />
             </div>
@@ -692,10 +692,10 @@ export default function PublicModuleView({ moduleId }: Props) {
                   color: "oklch(var(--primary-foreground))",
                 }}
               >
-                {isSubmitting ? (
+                {isSubmitting || isFetching ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Submitting…
+                    {isFetching ? "Connecting…" : "Submitting…"}
                   </>
                 ) : (
                   "Submit Sign-Off"

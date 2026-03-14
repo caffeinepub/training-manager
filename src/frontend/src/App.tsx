@@ -6,14 +6,6 @@ import ModuleViewer from "@/components/ModuleViewer";
 import PublicModuleView from "@/components/PublicModuleView";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Toaster } from "@/components/ui/sonner";
 import { useTrainingData } from "@/hooks/useTrainingData";
 import type { TrainingModule } from "@/hooks/useTrainingData";
@@ -23,23 +15,20 @@ import {
   CheckCircle2,
   Clock,
   GraduationCap,
-  LayoutDashboard,
   Loader2,
   LogOut,
   Menu,
-  Search,
   ShieldCheck,
-  UserCheck,
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-type View = "modules" | "dashboard" | "admin";
+type View = "dashboard" | "admin";
 type AdminSubView = "panel" | "module-viewer";
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<View>("modules");
+  const [currentView, setCurrentView] = useState<View>("dashboard");
   const [selectedModule, setSelectedModule] = useState<TrainingModule | null>(
     null,
   );
@@ -72,12 +61,10 @@ export default function App() {
     assignModulesToUser,
     getAssignedModulesForUser,
     getAssignedModuleIdsForUser,
+    publicCompletionLinks,
     loginWithGoogle,
     logout,
   } = useTrainingData();
-
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   // Deep-link: auto-open module + user from URL params (?moduleId=…&userId=…)
   const deepLinkApplied = useRef(false);
@@ -94,7 +81,6 @@ export default function App() {
       deepLinkApplied.current = true;
       setSelectedUserId(userId);
       setSelectedModule(module);
-      setCurrentView("modules");
       history.replaceState({}, "", window.location.pathname);
     }
   }, [modules, users]);
@@ -111,16 +97,7 @@ export default function App() {
     ? getAssignedModulesForUser(effectiveUserId)
     : modules;
 
-  const displayedModules = baseModules.filter((m) => {
-    const q = searchQuery.toLowerCase().trim();
-    const matchesSearch =
-      !q ||
-      m.title.toLowerCase().includes(q) ||
-      m.description.toLowerCase().includes(q);
-    const matchesCategory =
-      !selectedCategory || m.category === selectedCategory;
-    return matchesSearch && matchesCategory;
-  });
+  const displayedModules = baseModules;
 
   const selectedUser = users.find((u) => u.id === effectiveUserId) ?? null;
 
@@ -134,18 +111,7 @@ export default function App() {
 
   const pendingCount = displayedModules.length - completedCount;
 
-  const totalPending = modules.filter(
-    (m) => !completions.some((c) => c.moduleId === m.id),
-  ).length;
-
   const allNavItems = [
-    {
-      id: "modules" as View,
-      label: "Training Modules",
-      icon: LayoutDashboard,
-      badge: totalPending > 0 ? String(totalPending) : undefined,
-      adminOnly: false,
-    },
     {
       id: "dashboard" as View,
       label: "Dashboard",
@@ -159,9 +125,7 @@ export default function App() {
       adminOnly: true,
     },
   ];
-  const navItems = isViewer
-    ? allNavItems.filter((i) => !i.adminOnly)
-    : allNavItems;
+  const navItems = isViewer ? [] : allNavItems;
 
   const handleNavigate = (view: View) => {
     setCurrentView(view);
@@ -186,7 +150,12 @@ export default function App() {
     "publicModule",
   );
   if (publicModuleId) {
-    return <PublicModuleView moduleId={publicModuleId} />;
+    return (
+      <>
+        <PublicModuleView moduleId={publicModuleId} />
+        <Toaster richColors position="top-right" />
+      </>
+    );
   }
 
   // Show login gate if not authenticated (after loading completes)
@@ -464,18 +433,6 @@ export default function App() {
                 >
                   <Icon className="w-4 h-4 shrink-0" />
                   <span className="flex-1">{item.label}</span>
-                  {item.badge && (
-                    <Badge
-                      className="text-xs h-5 min-w-5 flex items-center justify-center font-display font-bold"
-                      style={{
-                        background: "oklch(0.78 0.14 80)",
-                        color: "oklch(0.25 0.05 60)",
-                        border: "none",
-                      }}
-                    >
-                      {item.badge}
-                    </Badge>
-                  )}
                 </button>
               );
             })}
@@ -571,11 +528,9 @@ export default function App() {
                     adminSubView === "module-viewer" &&
                     adminViewingModule
                   ? adminViewingModule.title
-                  : currentView === "modules"
-                    ? "Training Modules"
-                    : currentView === "dashboard"
-                      ? "Dashboard"
-                      : "Admin"}
+                  : currentView === "dashboard"
+                    ? "Dashboard"
+                    : "Admin"}
             </span>
           </div>
 
@@ -659,8 +614,8 @@ export default function App() {
                 ))}
               </div>
             </div>
-          ) : /* Module Viewer */
-          selectedModule ? (
+          ) : isViewer && selectedModule ? (
+            /* ── Viewer: Module Viewer ── */
             <ModuleViewer
               module={selectedModule}
               completion={getCompletionForModule(
@@ -684,17 +639,16 @@ export default function App() {
                 });
               }}
             />
-          ) : currentView === "modules" ? (
-            /* ── Modules List ── */
+          ) : isViewer ? (
+            /* ── Viewer: My Assigned Modules ── */
             <div className="animate-fade-in">
-              {/* Page header */}
               <div className="mb-5 flex items-start justify-between gap-4 flex-wrap">
                 <div>
                   <h2
                     className="text-2xl font-display font-bold tracking-tight"
                     style={{ color: "oklch(var(--foreground))" }}
                   >
-                    Training Modules
+                    My Training Modules
                   </h2>
                   <p
                     className="text-sm font-body mt-1"
@@ -703,8 +657,6 @@ export default function App() {
                     Review and sign off on your assigned training documents.
                   </p>
                 </div>
-
-                {/* Progress summary */}
                 <div
                   className="flex items-center gap-3 px-4 py-2.5 rounded-lg border shrink-0"
                   style={{
@@ -764,172 +716,9 @@ export default function App() {
                 </div>
               </div>
 
-              {/* ── Trainee Selector (admin only) ── */}
-              {!isViewer && (
-                <div
-                  className="mb-5 flex flex-wrap items-center gap-3 p-3 rounded-lg border"
-                  style={{
-                    background: "oklch(var(--card))",
-                    borderColor: "oklch(var(--border))",
-                  }}
-                >
-                  <div className="flex items-center gap-2 shrink-0">
-                    <UserCheck
-                      className="w-4 h-4"
-                      style={{ color: "oklch(var(--primary))" }}
-                    />
-                    <span
-                      className="text-sm font-display font-semibold"
-                      style={{ color: "oklch(var(--foreground))" }}
-                    >
-                      View as trainee
-                    </span>
-                  </div>
-
-                  <Select
-                    value={selectedUserId ?? "all"}
-                    onValueChange={(val) =>
-                      setSelectedUserId(val === "all" ? null : val)
-                    }
-                  >
-                    <SelectTrigger
-                      data-ocid="modules.user_select"
-                      className="w-[220px] font-body text-sm h-8"
-                      style={{ borderColor: "oklch(var(--border))" }}
-                    >
-                      <SelectValue placeholder="All Modules" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all" className="font-body text-sm">
-                        All Modules
-                      </SelectItem>
-                      {users.map((user) => (
-                        <SelectItem
-                          key={user.id}
-                          value={user.id}
-                          className="font-body text-sm"
-                        >
-                          {user.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  {selectedUser && (
-                    <div className="flex items-center gap-2">
-                      <Badge
-                        className="gap-1.5 font-body font-medium text-xs h-7 px-3"
-                        style={{
-                          background: "oklch(0.92 0.04 255)",
-                          color: "oklch(0.28 0.065 255)",
-                          border: "1px solid oklch(0.75 0.08 255 / 50%)",
-                        }}
-                      >
-                        <UserCheck className="w-3 h-3" />
-                        Viewing as: {selectedUser.name}
-                      </Badge>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSelectedUserId(null)}
-                        data-ocid="modules.clear_user_button"
-                        className="h-7 w-7 p-0 rounded-full"
-                        style={{ color: "oklch(var(--muted-foreground))" }}
-                        title="Clear trainee filter"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* ── Search bar ── */}
-              <div className="mb-3 relative">
-                <Search
-                  className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none"
-                  style={{ color: "oklch(var(--muted-foreground))" }}
-                />
-                <Input
-                  data-ocid="modules.search_input"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search modules by title or description..."
-                  className="pl-9 font-body text-sm h-9"
-                  style={{ borderColor: "oklch(var(--border))" }}
-                />
-                {searchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchQuery("")}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded hover:opacity-70 transition-opacity"
-                    style={{ color: "oklch(var(--muted-foreground))" }}
-                    aria-label="Clear search"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-
-              {/* ── Category filter chips ── */}
-              {categories.length > 0 && (
-                <div className="mb-4 flex items-center gap-2 overflow-x-auto pb-1">
-                  <button
-                    type="button"
-                    data-ocid="modules.category_filter.tab"
-                    onClick={() => setSelectedCategory(null)}
-                    className="shrink-0 text-xs font-display font-semibold px-3 py-1 rounded-full transition-all duration-150"
-                    style={
-                      selectedCategory === null
-                        ? {
-                            background: "oklch(var(--primary))",
-                            color: "oklch(var(--primary-foreground))",
-                            border: "1.5px solid oklch(var(--primary))",
-                          }
-                        : {
-                            background: "oklch(var(--card))",
-                            color: "oklch(var(--muted-foreground))",
-                            border: "1.5px solid oklch(var(--border))",
-                          }
-                    }
-                  >
-                    All
-                  </button>
-                  {categories.map((cat) => (
-                    <button
-                      key={cat}
-                      type="button"
-                      data-ocid={`modules.category.${cat.toLowerCase()}.tab`}
-                      onClick={() =>
-                        setSelectedCategory(
-                          selectedCategory === cat ? null : cat,
-                        )
-                      }
-                      className="shrink-0 text-xs font-display font-semibold px-3 py-1 rounded-full transition-all duration-150"
-                      style={
-                        selectedCategory === cat
-                          ? {
-                              background: "oklch(0.55 0.12 280)",
-                              color: "white",
-                              border: "1.5px solid oklch(0.55 0.12 280)",
-                            }
-                          : {
-                              background: "oklch(0.92 0.04 280)",
-                              color: "oklch(0.35 0.12 280)",
-                              border: "1.5px solid oklch(0.78 0.08 280 / 40%)",
-                            }
-                      }
-                    >
-                      {cat}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* Modules grid */}
               {displayedModules.length === 0 ? (
                 <div
-                  data-ocid="modules.empty_state"
+                  data-ocid="viewer.modules.empty_state"
                   className="py-20 text-center rounded-lg border"
                   style={{
                     borderColor: "oklch(var(--border))",
@@ -944,27 +733,19 @@ export default function App() {
                     className="font-display font-semibold text-lg"
                     style={{ color: "oklch(var(--foreground))" }}
                   >
-                    {searchQuery || selectedCategory
-                      ? "No modules match your search"
-                      : selectedUser
-                        ? `No modules assigned to ${selectedUser.name}`
-                        : "No training modules yet"}
+                    No modules assigned yet
                   </h3>
                   <p
                     className="text-sm font-body mt-1"
                     style={{ color: "oklch(var(--muted-foreground))" }}
                   >
-                    {searchQuery || selectedCategory
-                      ? "Try a different search term or category filter."
-                      : selectedUser
-                        ? "Open the Admin panel → Users → Profile to assign modules."
-                        : "Visit the Admin panel to create your first training module."}
+                    Your manager will assign training modules to you.
                   </p>
                 </div>
               ) : (
                 <div
                   className="grid grid-cols-1 md:grid-cols-2 gap-4"
-                  data-ocid="modules.list"
+                  data-ocid="viewer.modules.list"
                 >
                   {displayedModules.map((module, idx) => (
                     <ModuleCard
@@ -976,20 +757,6 @@ export default function App() {
                       )}
                       index={idx + 1}
                       onView={() => setSelectedModule(module)}
-                      onCopyLink={
-                        effectiveUserId && !isViewer
-                          ? () => {
-                              copyShareLink(module.id, effectiveUserId);
-                              toast.success("Training link copied!");
-                            }
-                          : undefined
-                      }
-                      onCopyPublicLink={() => {
-                        copyPublicModuleLink(module.id);
-                        toast.success(
-                          "Public link copied! Anyone with this link can complete the module.",
-                        );
-                      }}
                     />
                   ))}
                 </div>
@@ -1038,6 +805,8 @@ export default function App() {
               updateUserPermission={updateUserPermission}
               approveUser={approveUser}
               rejectUser={rejectUser}
+              assignments={assignments}
+              publicCompletionLinks={publicCompletionLinks}
             />
           )}
         </main>

@@ -143,6 +143,7 @@ type TrainingActor = {
   approveUser: (userId: string, role: string) => Promise<void>;
   rejectUser: (userId: string) => Promise<void>;
   bootstrapAdmin: (userId: string) => Promise<void>;
+  claimOwnership: (email: string) => Promise<boolean>;
   // Assignments
   assignModulesToUser: (userId: string, moduleIds: string[]) => Promise<void>;
   getAssignmentsForUser: (userId: string) => Promise<string[]>;
@@ -153,6 +154,14 @@ type TrainingActor = {
   getCategories: () => Promise<string[]>;
   setModuleCategory: (moduleId: string, category: string) => Promise<void>;
   getModuleCategories: () => Promise<[string, string][]>;
+  submitPublicCompletionForUser: (
+    moduleId: bigint,
+    assignedUserId: string,
+    userName: string,
+    initials: string,
+    signatureData: string,
+  ) => Promise<bigint>;
+  getPublicCompletionLinks: () => Promise<[bigint, string][]>;
 };
 
 // Rich completion extra fields stored in localStorage
@@ -295,6 +304,9 @@ export function useTrainingData() {
   const [users, setUsers] = useState<AppUser[]>([]);
   const [assignments, setAssignments] = useState<UserAssignment[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
+  const [publicCompletionLinks, setPublicCompletionLinks] = useState<
+    Array<[bigint, string]>
+  >([]);
 
   // Session is still per-device (localStorage)
   const [currentSession, setCurrentSession] = useState<UserSession | null>(() =>
@@ -361,6 +373,7 @@ export function useTrainingData() {
           backendAssignments,
           backendCategories,
           backendModuleCategories,
+          backendPublicCompletionLinks,
         ] = await Promise.all([
           actor.getModules(),
           actor.getAllCompletions(),
@@ -368,6 +381,9 @@ export function useTrainingData() {
           actor.getAllAssignments().catch(() => [] as BackendAssignment[]),
           actor.getCategories().catch(() => [] as string[]),
           actor.getModuleCategories().catch(() => [] as [string, string][]),
+          actor
+            .getPublicCompletionLinks()
+            .catch(() => [] as [bigint, string][]),
         ]);
 
         // Build category map from backend pairs
@@ -398,6 +414,58 @@ export function useTrainingData() {
         );
 
         setCategories(backendCategories);
+        setPublicCompletionLinks(
+          backendPublicCompletionLinks as Array<[bigint, string]>,
+        );
+
+        // ── Auto-restore session ────────────────────────────────────────────
+        // If a saved session exists but the user is NOT found in the backend
+        // (e.g. after a fresh deployment that wiped backend state), automatically
+        // re-register them and call bootstrapAdmin so they become admin again
+        // if no other admins exist.
+        const session = loadSession();
+        if (session) {
+          const found = frontendUsers.find(
+            (u) =>
+              u.email?.toLowerCase() === session.email.toLowerCase() ||
+              u.id === session.userId,
+          );
+          if (!found) {
+            try {
+              const restoredId = await actor.registerGoogleUser(
+                session.name,
+                session.email,
+              );
+              try {
+                await actor.bootstrapAdmin(restoredId);
+              } catch {
+                /* ignore — only promotes when no admins exist */
+              }
+              try {
+                await actor.claimOwnership(session.email);
+              } catch {
+                /* ignore */
+              }
+              // Update session userId if the backend assigned a new one
+              if (restoredId !== session.userId) {
+                const updatedSession: UserSession = {
+                  ...session,
+                  userId: restoredId,
+                };
+                saveSession(updatedSession);
+                setCurrentSession(updatedSession);
+              }
+              // Refresh the users list so the restored user is visible
+              const refreshedBackendUsers = await actor.getAppUsers();
+              setUsers(refreshedBackendUsers.map(backendUserToFrontend));
+            } catch (err) {
+              console.warn(
+                "[useTrainingData] Auto-restore session failed:",
+                err,
+              );
+            }
+          }
+        }
       } catch (err) {
         console.error("[useTrainingData] Failed to fetch from backend:", err);
         // Gracefully fall back to empty arrays
@@ -406,6 +474,7 @@ export function useTrainingData() {
         setUsers([]);
         setAssignments([]);
         setCategories([]);
+        setPublicCompletionLinks([]);
       } finally {
         setIsLoading(false);
       }
@@ -639,6 +708,12 @@ export function useTrainingData() {
           // Bootstrap: if no admins exist, promote this user to admin
           try {
             await actor.bootstrapAdmin(userId);
+          } catch {
+            /* ignore */
+          }
+          // Claim ownership: permanently lock in this user as admin
+          try {
+            await actor.claimOwnership(email);
           } catch {
             /* ignore */
           }
@@ -951,6 +1026,7 @@ export function useTrainingData() {
     assignModulesToUser,
     getAssignedModulesForUser,
     getAssignedModuleIdsForUser,
+    publicCompletionLinks,
     loginWithGoogle,
     logout,
   };

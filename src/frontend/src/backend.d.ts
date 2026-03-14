@@ -76,6 +76,8 @@ export interface backendInterface {
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
     setModuleCategory(moduleId: string, category: string): Promise<void>;
     submitCompletion(moduleId: bigint, userName: string, initials: string, signatureData: string): Promise<bigint>;
+    submitPublicCompletionForUser(moduleId: bigint, assignedUserId: string, userName: string, initials: string, signatureData: string): Promise<bigint>;
+    getPublicCompletionLinks(): Promise<Array<[bigint, string]>>;
     updateAppUserPermission(userId: string, permission: string): Promise<void>;
     updateModule(id: bigint, title: string, description: string, googleDocUrl: string): Promise<void>;
 }

@@ -69,6 +69,10 @@ actor {
   stable var _stableAssignments : [(Text, UserAssignment)] = [];
   stable var _stableCategories : [(Text, Text)] = [];
   stable var _stableModuleToCategory : [(Text, Text)] = [];
+  // Maps completionId -> appUserId for public link completions
+  stable var _stablePublicCompletionLinks : [(Nat, Text)] = [];
+  // Permanent owner email — this user is ALWAYS admin on every login
+  stable var _stableOwnerEmail : Text = "";
 
   // ── Runtime maps (populated from stable on startup) ─────────────────────
 
@@ -83,6 +87,8 @@ actor {
   let assignments = Map.empty<Text, UserAssignment>();
   let categories = Map.empty<Text, Text>();
   let moduleToCategory = Map.empty<Text, Text>();
+  // completionId -> appUserId link for public completions
+  let publicCompletionLinks = Map.empty<Nat, Text>();
 
   // Restore from stable storage on first run after upgrade
   do {
@@ -93,6 +99,7 @@ actor {
     for ((k, v) in _stableAssignments.values()) { assignments.add(k, v) };
     for ((k, v) in _stableCategories.values()) { categories.add(k, v) };
     for ((k, v) in _stableModuleToCategory.values()) { moduleToCategory.add(k, v) };
+    for ((k, v) in _stablePublicCompletionLinks.values()) { publicCompletionLinks.add(k, v) };
   };
 
   // ── Upgrade hooks ────────────────────────────────────────────────────────
@@ -108,9 +115,43 @@ actor {
     _stableAssignments := assignments.toArray();
     _stableCategories := categories.toArray();
     _stableModuleToCategory := moduleToCategory.toArray();
+    _stablePublicCompletionLinks := publicCompletionLinks.toArray();
+    // _stableOwnerEmail is already stable, no action needed
   };
 
   system func postupgrade() {};
+
+  // ── Owner / permanent admin ──────────────────────────────────────────────
+
+  // Helper: force a user with this email to admin permission
+  func promoteOwnerEmail(email : Text) {
+    if (email == "") return;
+    
+    let allUsers = appUsers.toArray();
+    for ((uid, u) in allUsers.values()) {
+      if (u.email == email and u.permission != "admin") {
+        appUsers.add(uid, { u with permission = "admin" });
+      };
+    };
+  };
+
+  // Claim ownership: first caller sets the owner email and becomes admin.
+  // If owner is already set, only the matching email can call this to re-assert admin.
+  // Returns true if the caller is now the owner/admin.
+  public shared func claimOwnership(email : Text) : async Bool {
+    
+    if (_stableOwnerEmail == "") {
+      // First claim — record this email as the permanent owner
+      _stableOwnerEmail := email;
+      promoteOwnerEmail(email);
+      return true;
+    } else if (_stableOwnerEmail == email) {
+      // Owner re-asserting — always re-promote
+      promoteOwnerEmail(email);
+      return true;
+    };
+    return false;
+  };
 
   // ── User Profile Management ──────────────────────────────────────────────
 
@@ -196,6 +237,30 @@ actor {
     id;
   };
 
+  // Submit a public link completion linked to a specific app user
+  public shared ({ caller }) func submitPublicCompletionForUser(
+    moduleId : Nat,
+    assignedUserId : Text,
+    userName : Text,
+    initials : Text,
+    signatureData : Text
+  ) : async Nat {
+    let id = nextRecordId;
+    nextRecordId += 1;
+    completions.add(id, {
+      id;
+      moduleId;
+      userId = caller;
+      userName;
+      initials;
+      signatureData;
+      completedAt = Time.now();
+    });
+    // Store the link to the app user
+    publicCompletionLinks.add(id, assignedUserId);
+    id;
+  };
+
   public query ({ caller }) func getCompletionsByModule(moduleId : Nat) : async [CompletionRecord] {
     completions.values().toArray().filter<CompletionRecord>(
       func(record) { record.moduleId == moduleId }
@@ -221,6 +286,11 @@ actor {
 
   public query func getAllCompletions() : async [CompletionRecord] {
     completions.values().toArray();
+  };
+
+  // Returns all (completionId, appUserId) pairs for public link completions
+  public query func getPublicCompletionLinks() : async [(Nat, Text)] {
+    publicCompletionLinks.toArray();
   };
 
   // ── App User Management ──────────────────────────────────────────────────
@@ -295,7 +365,6 @@ actor {
     };
   };
 
-
   // Look up a user by email (for permission checks on login)
   public query func getUserByEmail(email : Text) : async ?AppUser {
     appUsers.values().toArray().find(
@@ -312,14 +381,22 @@ actor {
   };
 
   public shared ({ caller }) func registerGoogleUser(name : Text, email : Text) : async Text {
+    
     let existingUser = appUsers.values().toArray().find(
       func(user) { user.email == email }
     );
 
     switch (existingUser) {
       case (?existing) {
+        // If this email is the permanent owner, always keep/restore admin
+        let perm = if (_stableOwnerEmail == email and _stableOwnerEmail != "") {
+          "admin"
+        } else {
+          existing.permission
+        };
         let updated = {
           existing with
+          permission = perm;
           loginSource = "google";
           loginAt = Time.now()
         };
@@ -330,13 +407,20 @@ actor {
         let id = "user-" # nextUserId.toText();
         nextUserId += 1;
 
+        // If this is the owner email, grant admin immediately
+        let initPerm = if (_stableOwnerEmail == email and _stableOwnerEmail != "") {
+          "admin"
+        } else {
+          "pending"
+        };
+
         let newUser : AppUser = {
           id;
           name;
           role = "";
           department = "";
           createdAt = Time.now();
-          permission = "pending"; // NEW: requires admin approval
+          permission = initPerm;
           loginSource = "google";
           loginAt = Time.now();
           email;

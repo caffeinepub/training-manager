@@ -92,6 +92,8 @@ type Props = {
   users: AppUser[];
   modules: TrainingModule[];
   completions: CompletionRecord[];
+  allCompletions: CompletionRecord[];
+  publicCompletionLinks: Array<[bigint, string]>;
   getAssignedModuleIds: (userId: string) => string[];
   onCreate: (data: Omit<AppUser, "id" | "createdAt">) => void;
   onDelete: (id: string) => void;
@@ -103,6 +105,8 @@ export default function UsersPanel({
   users,
   modules,
   completions,
+  allCompletions,
+  publicCompletionLinks,
   getAssignedModuleIds,
   onCreate,
   onDelete,
@@ -563,6 +567,8 @@ export default function UsersPanel({
           profileUser ? getAssignedModuleIds(profileUser.id) : []
         }
         completions={completions}
+        allCompletions={allCompletions}
+        publicCompletionLinks={publicCompletionLinks}
         onSave={onAssign}
       />
     </>
