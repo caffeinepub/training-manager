@@ -351,6 +351,140 @@ export function useTrainingData() {
     saveCompletionExtras(completionExtrasMap);
   }, [completionExtrasMap]);
 
+  // ── refreshAll: fetch all data from backend ───────────────────────────────
+  // Re-usable function called both on initial load and after every mutation.
+
+  const refreshAll = useCallback(async () => {
+    if (!actor) return;
+    const extras = loadCompletionExtras();
+    setIsLoading(true);
+    try {
+      await ensureActorInitialized(actor);
+
+      const [
+        backendModules,
+        backendCompletions,
+        backendUsers,
+        backendAssignments,
+        backendCategories,
+        backendModuleCategories,
+        backendPublicCompletionLinks,
+      ] = await Promise.all([
+        actor.getModules(),
+        actor.getAllCompletions(),
+        actor.getAppUsers().catch(() => [] as BackendAppUser[]),
+        actor.getAllAssignments().catch(() => [] as BackendAssignment[]),
+        actor.getCategories().catch(() => [] as string[]),
+        actor.getModuleCategories().catch(() => [] as [string, string][]),
+        actor.getPublicCompletionLinks().catch(() => [] as [bigint, string][]),
+      ]);
+
+      // Build category map from backend pairs
+      const categoryMap: Record<string, string> = {};
+      for (const [moduleId, category] of backendModuleCategories) {
+        categoryMap[moduleId] = category;
+      }
+      moduleCategoryMapRef.current = categoryMap;
+
+      const frontendModules = backendModules.map((bm) =>
+        backendModuleToFrontend(bm, categoryMap),
+      );
+      setModules(frontendModules);
+
+      const frontendCompletions = backendCompletions.map((bc) =>
+        backendCompletionToFrontend(bc, extras),
+      );
+      setCompletions(frontendCompletions);
+
+      const frontendUsers = backendUsers.map(backendUserToFrontend);
+      // Guarantee owner always has admin in local state regardless of what backend returns
+      setUsers(
+        frontendUsers.map((u) =>
+          u.email?.toLowerCase() === OWNER_EMAIL
+            ? { ...u, permission: "admin" as const }
+            : u,
+        ),
+      );
+
+      setAssignments(
+        backendAssignments.map((a) => ({
+          userId: a.userId,
+          moduleIds: a.moduleIds,
+        })),
+      );
+
+      setCategories(backendCategories);
+      setPublicCompletionLinks(
+        backendPublicCompletionLinks as Array<[bigint, string]>,
+      );
+
+      // ── Auto-restore session ──────────────────────────────────────────────
+      // If a saved session exists but the user is NOT found in the backend
+      // (e.g. after a fresh deployment that wiped backend state), automatically
+      // re-register them and call bootstrapAdmin so they become admin again
+      // if no other admins exist.
+      const session = loadSession();
+      if (session) {
+        const found = frontendUsers.find(
+          (u) =>
+            u.email?.toLowerCase() === session.email.toLowerCase() ||
+            u.id === session.userId,
+        );
+        if (!found) {
+          try {
+            const restoredId = await actor.registerGoogleUser(
+              session.name,
+              session.email,
+            );
+            try {
+              await actor.bootstrapAdmin(restoredId);
+            } catch {
+              /* ignore — only promotes when no admins exist */
+            }
+            try {
+              await actor.claimOwnership(session.email);
+            } catch {
+              /* ignore */
+            }
+            // Update session userId if the backend assigned a new one
+            if (restoredId !== session.userId) {
+              const updatedSession: UserSession = {
+                ...session,
+                userId: restoredId,
+              };
+              saveSession(updatedSession);
+              setCurrentSession(updatedSession);
+            }
+            // Refresh the users list so the restored user is visible
+            const refreshedBackendUsers = await actor.getAppUsers();
+            setUsers(
+              refreshedBackendUsers
+                .map(backendUserToFrontend)
+                .map((u) =>
+                  u.email?.toLowerCase() === OWNER_EMAIL
+                    ? { ...u, permission: "admin" as const }
+                    : u,
+                ),
+            );
+          } catch (err) {
+            console.warn("[useTrainingData] Auto-restore session failed:", err);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[useTrainingData] Failed to fetch from backend:", err);
+      // Gracefully fall back to empty arrays
+      setModules([]);
+      setCompletions([]);
+      setUsers([]);
+      setAssignments([]);
+      setCategories([]);
+      setPublicCompletionLinks([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [actor, ensureActorInitialized]);
+
   // ── Fetch from backend when actor becomes available or changes ────────────
 
   useEffect(() => {
@@ -360,147 +494,8 @@ export function useTrainingData() {
     if (lastActorRef.current === actor) return;
     lastActorRef.current = actor;
 
-    const extras = loadCompletionExtras();
-
-    const fetchAll = async () => {
-      setIsLoading(true);
-      try {
-        // Ensure the caller has admin rights so all CRUD operations succeed.
-        // This is needed for anonymous actors (app uses local Google login, not Internet Identity).
-        await ensureActorInitialized(actor);
-
-        // Fetch all data in parallel
-        const [
-          backendModules,
-          backendCompletions,
-          backendUsers,
-          backendAssignments,
-          backendCategories,
-          backendModuleCategories,
-          backendPublicCompletionLinks,
-        ] = await Promise.all([
-          actor.getModules(),
-          actor.getAllCompletions(),
-          actor.getAppUsers().catch(() => [] as BackendAppUser[]),
-          actor.getAllAssignments().catch(() => [] as BackendAssignment[]),
-          actor.getCategories().catch(() => [] as string[]),
-          actor.getModuleCategories().catch(() => [] as [string, string][]),
-          actor
-            .getPublicCompletionLinks()
-            .catch(() => [] as [bigint, string][]),
-        ]);
-
-        // Build category map from backend pairs
-        const categoryMap: Record<string, string> = {};
-        for (const [moduleId, category] of backendModuleCategories) {
-          categoryMap[moduleId] = category;
-        }
-        moduleCategoryMapRef.current = categoryMap;
-
-        const frontendModules = backendModules.map((bm) =>
-          backendModuleToFrontend(bm, categoryMap),
-        );
-        setModules(frontendModules);
-
-        const frontendCompletions = backendCompletions.map((bc) =>
-          backendCompletionToFrontend(bc, extras),
-        );
-        setCompletions(frontendCompletions);
-
-        const frontendUsers = backendUsers.map(backendUserToFrontend);
-        // Guarantee owner always has admin in local state regardless of what backend returns
-        setUsers(
-          frontendUsers.map((u) =>
-            u.email?.toLowerCase() === OWNER_EMAIL
-              ? { ...u, permission: "admin" as const }
-              : u,
-          ),
-        );
-
-        setAssignments(
-          backendAssignments.map((a) => ({
-            userId: a.userId,
-            moduleIds: a.moduleIds,
-          })),
-        );
-
-        setCategories(backendCategories);
-        setPublicCompletionLinks(
-          backendPublicCompletionLinks as Array<[bigint, string]>,
-        );
-
-        // ── Auto-restore session ────────────────────────────────────────────
-        // If a saved session exists but the user is NOT found in the backend
-        // (e.g. after a fresh deployment that wiped backend state), automatically
-        // re-register them and call bootstrapAdmin so they become admin again
-        // if no other admins exist.
-        const session = loadSession();
-        if (session) {
-          const found = frontendUsers.find(
-            (u) =>
-              u.email?.toLowerCase() === session.email.toLowerCase() ||
-              u.id === session.userId,
-          );
-          if (!found) {
-            try {
-              const restoredId = await actor.registerGoogleUser(
-                session.name,
-                session.email,
-              );
-              try {
-                await actor.bootstrapAdmin(restoredId);
-              } catch {
-                /* ignore — only promotes when no admins exist */
-              }
-              try {
-                await actor.claimOwnership(session.email);
-              } catch {
-                /* ignore */
-              }
-              // Update session userId if the backend assigned a new one
-              if (restoredId !== session.userId) {
-                const updatedSession: UserSession = {
-                  ...session,
-                  userId: restoredId,
-                };
-                saveSession(updatedSession);
-                setCurrentSession(updatedSession);
-              }
-              // Refresh the users list so the restored user is visible
-              const refreshedBackendUsers = await actor.getAppUsers();
-              setUsers(
-                refreshedBackendUsers
-                  .map(backendUserToFrontend)
-                  .map((u) =>
-                    u.email?.toLowerCase() === OWNER_EMAIL
-                      ? { ...u, permission: "admin" as const }
-                      : u,
-                  ),
-              );
-            } catch (err) {
-              console.warn(
-                "[useTrainingData] Auto-restore session failed:",
-                err,
-              );
-            }
-          }
-        }
-      } catch (err) {
-        console.error("[useTrainingData] Failed to fetch from backend:", err);
-        // Gracefully fall back to empty arrays
-        setModules([]);
-        setCompletions([]);
-        setUsers([]);
-        setAssignments([]);
-        setCategories([]);
-        setPublicCompletionLinks([]);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    void fetchAll();
-  }, [actor, actorFetching, ensureActorInitialized]);
+    void refreshAll();
+  }, [actor, actorFetching, refreshAll]);
 
   // If actor never loads, don't stay in loading state forever
   useEffect(() => {
@@ -536,28 +531,24 @@ export function useTrainingData() {
           } catch (err) {
             console.warn("[useTrainingData] setModuleCategory failed:", err);
           }
-          moduleCategoryMapRef.current = {
-            ...moduleCategoryMapRef.current,
-            [idStr]: data.category!,
-          };
         }
 
-        const newModule: TrainingModule = {
+        await refreshAll();
+        // Return a minimal object so callers that use the return value still work
+        return {
           id: idStr,
           title: data.title,
           description: data.description,
           googleDocUrl: data.googleDocUrl,
           createdAt: Date.now(),
           category: data.category,
-        };
-        setModules((prev) => [...prev, newModule]);
-        return newModule;
+        } as TrainingModule;
       } catch (err) {
         console.error("[useTrainingData] createModule failed:", err);
         return null;
       }
     },
-    [actor, ensureActorInitialized],
+    [actor, ensureActorInitialized, refreshAll],
   );
 
   const updateModule = useCallback(
@@ -589,32 +580,14 @@ export function useTrainingData() {
           } catch (err) {
             console.warn("[useTrainingData] setModuleCategory failed:", err);
           }
-          const catMapNext = { ...moduleCategoryMapRef.current };
-          if (data.category) {
-            catMapNext[id] = data.category;
-          } else {
-            delete catMapNext[id];
-          }
-          moduleCategoryMapRef.current = catMapNext;
         }
 
-        setModules((prev) =>
-          prev.map((m) =>
-            m.id === id
-              ? {
-                  ...m,
-                  ...data,
-                  category:
-                    data.category !== undefined ? data.category : m.category,
-                }
-              : m,
-          ),
-        );
+        await refreshAll();
       } catch (err) {
         console.error("[useTrainingData] updateModule failed:", err);
       }
     },
-    [actor, modules, ensureActorInitialized],
+    [actor, modules, ensureActorInitialized, refreshAll],
   );
 
   const deleteModule = useCallback(
@@ -626,26 +599,12 @@ export function useTrainingData() {
       try {
         await ensureActorInitialized(actor);
         await actor.deleteModule(BigInt(id));
-
-        setModules((prev) => prev.filter((m) => m.id !== id));
-        // Remove category from local map (backend handles persistence)
-        const catMapDel = { ...moduleCategoryMapRef.current };
-        delete catMapDel[id];
-        moduleCategoryMapRef.current = catMapDel;
-        // Remove associated completions
-        setCompletions((prev) => prev.filter((c) => c.moduleId !== id));
-        // Remove from user assignments in local state
-        setAssignments((prev) =>
-          prev.map((a) => ({
-            ...a,
-            moduleIds: a.moduleIds.filter((mid) => mid !== id),
-          })),
-        );
+        await refreshAll();
       } catch (err) {
         console.error("[useTrainingData] deleteModule failed:", err);
       }
     },
-    [actor, ensureActorInitialized],
+    [actor, ensureActorInitialized, refreshAll],
   );
 
   const deleteCompletion = useCallback(
@@ -659,12 +618,12 @@ export function useTrainingData() {
       try {
         await ensureActorInitialized(actor);
         await actor.deleteCompletion(BigInt(id));
-        setCompletions((prev) => prev.filter((c) => c.id !== id));
+        await refreshAll();
       } catch (err) {
         console.error("[useTrainingData] deleteCompletion failed:", err);
       }
     },
-    [actor, ensureActorInitialized],
+    [actor, ensureActorInitialized, refreshAll],
   );
 
   // ── Completions ───────────────────────────────────────────────────────────
@@ -703,7 +662,10 @@ export function useTrainingData() {
           });
         }
 
-        const newCompletion: CompletionRecord = {
+        await refreshAll();
+
+        // Return a minimal completion object so callers that use the return value still work
+        return {
           id: idStr,
           moduleId: data.moduleId,
           userId: data.userId,
@@ -712,15 +674,13 @@ export function useTrainingData() {
           signatureData: data.signatureData,
           completedAt: Date.now(),
           ...extra,
-        };
-        setCompletions((prev) => [...prev, newCompletion]);
-        return newCompletion;
+        } as CompletionRecord;
       } catch (err) {
         console.error("[useTrainingData] addCompletion failed:", err);
         return null;
       }
     },
-    [actor, ensureActorInitialized],
+    [actor, ensureActorInitialized, refreshAll],
   );
 
   const getCompletionForModule = useCallback(
@@ -755,54 +715,13 @@ export function useTrainingData() {
           } catch {
             /* ignore */
           }
-          // Refresh users list from backend
-          try {
-            const backendUsers = await actor.getAppUsers();
-            setUsers(backendUsers.map(backendUserToFrontend));
-            // Guarantee owner always has admin in local state
-            setUsers((prev) =>
-              prev.map((u) =>
-                u.email?.toLowerCase() === OWNER_EMAIL
-                  ? { ...u, permission: "admin" as const }
-                  : u,
-              ),
-            );
-          } catch {
-            // If fetch fails, add optimistically
-            setUsers((prev) => {
-              const existing = prev.find(
-                (u) => u.email?.toLowerCase() === email.toLowerCase(),
-              );
-              if (existing) {
-                return prev.map((u) =>
-                  u.id === existing.id
-                    ? {
-                        ...u,
-                        loginAt: Date.now(),
-                        loginSource: "google" as const,
-                      }
-                    : u,
-                );
-              }
-              return [
-                ...prev,
-                {
-                  id: userId,
-                  name,
-                  role: "",
-                  department: "",
-                  createdAt: Date.now(),
-                  permission: "viewer" as const,
-                  loginSource: "google" as const,
-                  loginAt: Date.now(),
-                  email,
-                },
-              ];
-            });
-          }
+
           const session: UserSession = { userId, name, email };
           setCurrentSession(session);
           saveSession(session);
+
+          // Refresh all data from backend
+          await refreshAll();
           return;
         } catch (err) {
           console.warn(
@@ -852,7 +771,7 @@ export function useTrainingData() {
         return updated;
       });
     },
-    [actor],
+    [actor, refreshAll],
   );
 
   const logout = useCallback(() => {
@@ -876,7 +795,9 @@ export function useTrainingData() {
           data.department ?? "",
           data.email ?? "",
         );
-        const newUser: AppUser = {
+        await refreshAll();
+        // Return a minimal user object so callers that use the return value still work
+        return {
           id: userId,
           name: data.name,
           role: data.role ?? "",
@@ -885,16 +806,13 @@ export function useTrainingData() {
           permission: data.permission ?? "viewer",
           loginSource: data.loginSource,
           createdAt: Date.now(),
-        };
-        setUsers((prev) => [...prev, newUser]);
-        setAssignments((prev) => [...prev, { userId, moduleIds: [] }]);
-        return newUser;
+        } as AppUser;
       } catch (err) {
         console.error("[useTrainingData] createUser failed:", err);
         return null;
       }
     },
-    [actor, ensureActorInitialized],
+    [actor, ensureActorInitialized, refreshAll],
   );
 
   const deleteUser = useCallback(
@@ -906,13 +824,12 @@ export function useTrainingData() {
       try {
         await ensureActorInitialized(actor);
         await actor.deleteAppUser(id);
-        setUsers((prev) => prev.filter((u) => u.id !== id));
-        setAssignments((prev) => prev.filter((a) => a.userId !== id));
+        await refreshAll();
       } catch (err) {
         console.error("[useTrainingData] deleteUser failed:", err);
       }
     },
-    [actor, ensureActorInitialized],
+    [actor, ensureActorInitialized, refreshAll],
   );
 
   const getUsers = useCallback(() => users, [users]);
@@ -931,14 +848,12 @@ export function useTrainingData() {
       try {
         await ensureActorInitialized(actor);
         await actor.updateAppUserPermission(userId, permission);
-        setUsers((prev) =>
-          prev.map((u) => (u.id === userId ? { ...u, permission } : u)),
-        );
+        await refreshAll();
       } catch (err) {
         console.error("[useTrainingData] updateUserPermission failed:", err);
       }
     },
-    [actor, ensureActorInitialized],
+    [actor, ensureActorInitialized, refreshAll],
   );
 
   const approveUser = useCallback(
@@ -947,21 +862,12 @@ export function useTrainingData() {
       try {
         await ensureActorInitialized(actor);
         await actor.approveUser(userId, role);
-        const backendUsers = await actor.getAppUsers();
-        setUsers(
-          backendUsers
-            .map(backendUserToFrontend)
-            .map((u) =>
-              u.email?.toLowerCase() === OWNER_EMAIL
-                ? { ...u, permission: "admin" as const }
-                : u,
-            ),
-        );
+        await refreshAll();
       } catch (err) {
         console.error("[useTrainingData] approveUser failed:", err);
       }
     },
-    [actor, ensureActorInitialized],
+    [actor, ensureActorInitialized, refreshAll],
   );
 
   const rejectUser = useCallback(
@@ -970,21 +876,12 @@ export function useTrainingData() {
       try {
         await ensureActorInitialized(actor);
         await actor.rejectUser(userId);
-        const backendUsers = await actor.getAppUsers();
-        setUsers(
-          backendUsers
-            .map(backendUserToFrontend)
-            .map((u) =>
-              u.email?.toLowerCase() === OWNER_EMAIL
-                ? { ...u, permission: "admin" as const }
-                : u,
-            ),
-        );
+        await refreshAll();
       } catch (err) {
         console.error("[useTrainingData] rejectUser failed:", err);
       }
     },
-    [actor, ensureActorInitialized],
+    [actor, ensureActorInitialized, refreshAll],
   );
 
   // ── Categories ────────────────────────────────────────────────────────────
@@ -997,17 +894,25 @@ export function useTrainingData() {
         try {
           await ensureActorInitialized(actor);
           await actor.addCategory(trimmed);
+          await refreshAll();
         } catch (err) {
           console.warn("[useTrainingData] addCategory failed:", err);
+          // Optimistic local update as fallback if backend call fails
+          setCategories((prev) => {
+            if (prev.some((c) => c.toLowerCase() === trimmed.toLowerCase()))
+              return prev;
+            return [...prev, trimmed];
+          });
         }
+      } else {
+        setCategories((prev) => {
+          if (prev.some((c) => c.toLowerCase() === trimmed.toLowerCase()))
+            return prev;
+          return [...prev, trimmed];
+        });
       }
-      setCategories((prev) => {
-        if (prev.some((c) => c.toLowerCase() === trimmed.toLowerCase()))
-          return prev;
-        return [...prev, trimmed];
-      });
     },
-    [actor, ensureActorInitialized],
+    [actor, ensureActorInitialized, refreshAll],
   );
 
   // ── Assignments ───────────────────────────────────────────────────────────
@@ -1018,22 +923,33 @@ export function useTrainingData() {
         try {
           await ensureActorInitialized(actor);
           await actor.assignModulesToUser(userId, moduleIds);
+          await refreshAll();
         } catch (err) {
           console.warn("[useTrainingData] assignModulesToUser failed:", err);
+          // Optimistic local update as fallback if backend call fails
+          setAssignments((prev) => {
+            const exists = prev.some((a) => a.userId === userId);
+            if (exists) {
+              return prev.map((a) =>
+                a.userId === userId ? { ...a, moduleIds } : a,
+              );
+            }
+            return [...prev, { userId, moduleIds }];
+          });
         }
+      } else {
+        setAssignments((prev) => {
+          const exists = prev.some((a) => a.userId === userId);
+          if (exists) {
+            return prev.map((a) =>
+              a.userId === userId ? { ...a, moduleIds } : a,
+            );
+          }
+          return [...prev, { userId, moduleIds }];
+        });
       }
-      // Optimistic local update
-      setAssignments((prev) => {
-        const exists = prev.some((a) => a.userId === userId);
-        if (exists) {
-          return prev.map((a) =>
-            a.userId === userId ? { ...a, moduleIds } : a,
-          );
-        }
-        return [...prev, { userId, moduleIds }];
-      });
     },
-    [actor, ensureActorInitialized],
+    [actor, ensureActorInitialized, refreshAll],
   );
 
   const getAssignedModulesForUser = useCallback(
