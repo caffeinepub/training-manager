@@ -1,6 +1,9 @@
 import { useActor } from "@/hooks/useActor";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+// ─── Owner email — hardcoded guarantee for admin status ───────────────────────
+const OWNER_EMAIL = "tvawdrey4@gmail.com";
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type TrainingModule = {
@@ -118,6 +121,7 @@ type TrainingActor = {
     googleDocUrl: string,
   ) => Promise<void>;
   deleteModule: (id: bigint) => Promise<void>;
+  deleteCompletion: (id: bigint) => Promise<void>;
   submitCompletion: (
     moduleId: bigint,
     userName: string,
@@ -404,7 +408,14 @@ export function useTrainingData() {
         setCompletions(frontendCompletions);
 
         const frontendUsers = backendUsers.map(backendUserToFrontend);
-        setUsers(frontendUsers);
+        // Guarantee owner always has admin in local state regardless of what backend returns
+        setUsers(
+          frontendUsers.map((u) =>
+            u.email?.toLowerCase() === OWNER_EMAIL
+              ? { ...u, permission: "admin" as const }
+              : u,
+          ),
+        );
 
         setAssignments(
           backendAssignments.map((a) => ({
@@ -457,7 +468,15 @@ export function useTrainingData() {
               }
               // Refresh the users list so the restored user is visible
               const refreshedBackendUsers = await actor.getAppUsers();
-              setUsers(refreshedBackendUsers.map(backendUserToFrontend));
+              setUsers(
+                refreshedBackendUsers
+                  .map(backendUserToFrontend)
+                  .map((u) =>
+                    u.email?.toLowerCase() === OWNER_EMAIL
+                      ? { ...u, permission: "admin" as const }
+                      : u,
+                  ),
+              );
             } catch (err) {
               console.warn(
                 "[useTrainingData] Auto-restore session failed:",
@@ -629,6 +648,25 @@ export function useTrainingData() {
     [actor, ensureActorInitialized],
   );
 
+  const deleteCompletion = useCallback(
+    async (id: string) => {
+      if (!actor) {
+        console.warn(
+          "[useTrainingData] No actor available for deleteCompletion",
+        );
+        return;
+      }
+      try {
+        await ensureActorInitialized(actor);
+        await actor.deleteCompletion(BigInt(id));
+        setCompletions((prev) => prev.filter((c) => c.id !== id));
+      } catch (err) {
+        console.error("[useTrainingData] deleteCompletion failed:", err);
+      }
+    },
+    [actor, ensureActorInitialized],
+  );
+
   // ── Completions ───────────────────────────────────────────────────────────
 
   const addCompletion = useCallback(
@@ -721,6 +759,14 @@ export function useTrainingData() {
           try {
             const backendUsers = await actor.getAppUsers();
             setUsers(backendUsers.map(backendUserToFrontend));
+            // Guarantee owner always has admin in local state
+            setUsers((prev) =>
+              prev.map((u) =>
+                u.email?.toLowerCase() === OWNER_EMAIL
+                  ? { ...u, permission: "admin" as const }
+                  : u,
+              ),
+            );
           } catch {
             // If fetch fails, add optimistically
             setUsers((prev) => {
@@ -902,7 +948,15 @@ export function useTrainingData() {
         await ensureActorInitialized(actor);
         await actor.approveUser(userId, role);
         const backendUsers = await actor.getAppUsers();
-        setUsers(backendUsers.map(backendUserToFrontend));
+        setUsers(
+          backendUsers
+            .map(backendUserToFrontend)
+            .map((u) =>
+              u.email?.toLowerCase() === OWNER_EMAIL
+                ? { ...u, permission: "admin" as const }
+                : u,
+            ),
+        );
       } catch (err) {
         console.error("[useTrainingData] approveUser failed:", err);
       }
@@ -917,7 +971,15 @@ export function useTrainingData() {
         await ensureActorInitialized(actor);
         await actor.rejectUser(userId);
         const backendUsers = await actor.getAppUsers();
-        setUsers(backendUsers.map(backendUserToFrontend));
+        setUsers(
+          backendUsers
+            .map(backendUserToFrontend)
+            .map((u) =>
+              u.email?.toLowerCase() === OWNER_EMAIL
+                ? { ...u, permission: "admin" as const }
+                : u,
+            ),
+        );
       } catch (err) {
         console.error("[useTrainingData] rejectUser failed:", err);
       }
@@ -990,10 +1052,13 @@ export function useTrainingData() {
     [assignments],
   );
 
-  // Derive current user's permission from their profile in the users list
+  // Derive current user's permission from their profile in the users list.
+  // The owner email ALWAYS gets admin — regardless of backend state or load timing.
   const currentUserPermission: "pending" | "viewer" | "admin" | "rejected" =
     (() => {
       if (!currentSession) return "pending";
+      // Owner always gets admin — hardcoded guarantee regardless of backend state or load timing
+      if (currentSession.email.toLowerCase() === OWNER_EMAIL) return "admin";
       const found = users.find(
         (u) =>
           u.email?.toLowerCase() === currentSession.email.toLowerCase() ||
@@ -1014,6 +1079,7 @@ export function useTrainingData() {
     createModule,
     updateModule,
     deleteModule,
+    deleteCompletion,
     addCompletion,
     getCompletionForModule,
     createUser,

@@ -291,6 +291,11 @@ actor {
     completions.values().toArray();
   };
 
+  public shared ({ caller }) func deleteCompletion(id : Nat) : async () {
+    completions.remove(id);
+    publicCompletionLinks.remove(id);
+  };
+
   // Returns all (completionId, appUserId) pairs for public link completions
   public query func getPublicCompletionLinks() : async [(Nat, Text)] {
     publicCompletionLinks.toArray();

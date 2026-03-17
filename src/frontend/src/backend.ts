@@ -156,6 +156,7 @@ export interface backendInterface {
     deleteAppUser(userId: string): Promise<void>;
     deleteCategory(name: string): Promise<void>;
     deleteModule(id: bigint): Promise<void>;
+    deleteCompletion(id: bigint): Promise<void>;
     getAllAssignments(): Promise<Array<UserAssignment>>;
     getAllCompletions(): Promise<Array<CompletionRecord>>;
     getAppUser(userId: string): Promise<AppUser | null>;
@@ -180,6 +181,11 @@ export interface backendInterface {
     getPublicCompletionLinks(): Promise<Array<[bigint, string]>>;
     updateAppUserPermission(userId: string, permission: string): Promise<void>;
     updateModule(id: bigint, title: string, description: string, googleDocUrl: string): Promise<void>;
+    approveUser(userId: string, role: string): Promise<void>;
+    bootstrapAdmin(userId: string): Promise<void>;
+    claimOwnership(email: string): Promise<boolean>;
+    getUserByEmail(email: string): Promise<AppUser | null>;
+    rejectUser(userId: string): Promise<void>;
 }
 import type { AppUser as _AppUser, TrainingModule as _TrainingModule, UserProfile as _UserProfile, UserRole as _UserRole, _CaffeineStorageRefillInformation as __CaffeineStorageRefillInformation, _CaffeineStorageRefillResult as __CaffeineStorageRefillResult } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
@@ -391,6 +397,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.deleteModule(arg0);
+            return result;
+        }
+    }
+    async deleteCompletion(arg0: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.deleteCompletion(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.deleteCompletion(arg0);
             return result;
         }
     }
@@ -730,6 +750,38 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async approveUser(arg0: string, arg1: string): Promise<void> {
+        if (this.processError) {
+            try { return await this.actor.approveUser(arg0, arg1); } catch (e) { this.processError(e); throw new Error("unreachable"); }
+        } else { return await this.actor.approveUser(arg0, arg1); }
+    }
+    async bootstrapAdmin(arg0: string): Promise<void> {
+        if (this.processError) {
+            try { return await this.actor.bootstrapAdmin(arg0); } catch (e) { this.processError(e); throw new Error("unreachable"); }
+        } else { return await this.actor.bootstrapAdmin(arg0); }
+    }
+    async claimOwnership(arg0: string): Promise<boolean> {
+        if (this.processError) {
+            try { return await this.actor.claimOwnership(arg0); } catch (e) { this.processError(e); throw new Error("unreachable"); }
+        } else { return await this.actor.claimOwnership(arg0); }
+    }
+    async getUserByEmail(arg0: string): Promise<AppUser | null> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getUserByEmail(arg0);
+                return from_candid_opt_n10(this._uploadFile, this._downloadFile, result);
+            } catch (e) { this.processError(e); throw new Error("unreachable"); }
+        } else {
+            const result = await this.actor.getUserByEmail(arg0);
+            return from_candid_opt_n10(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async rejectUser(arg0: string): Promise<void> {
+        if (this.processError) {
+            try { return await this.actor.rejectUser(arg0); } catch (e) { this.processError(e); throw new Error("unreachable"); }
+        } else { return await this.actor.rejectUser(arg0); }
+    }
+
 }
 function from_candid_UserRole_n12(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _UserRole): UserRole {
     return from_candid_variant_n13(_uploadFile, _downloadFile, value);

@@ -56,6 +56,7 @@ export interface backendInterface {
     deleteAppUser(userId: string): Promise<void>;
     deleteCategory(name: string): Promise<void>;
     deleteModule(id: bigint): Promise<void>;
+    deleteCompletion(id: bigint): Promise<void>;
     getAllAssignments(): Promise<Array<UserAssignment>>;
     getAllCompletions(): Promise<Array<CompletionRecord>>;
     getAppUser(userId: string): Promise<AppUser | null>;
@@ -80,4 +81,9 @@ export interface backendInterface {
     getPublicCompletionLinks(): Promise<Array<[bigint, string]>>;
     updateAppUserPermission(userId: string, permission: string): Promise<void>;
     updateModule(id: bigint, title: string, description: string, googleDocUrl: string): Promise<void>;
+    approveUser(userId: string, role: string): Promise<void>;
+    bootstrapAdmin(userId: string): Promise<void>;
+    claimOwnership(email: string): Promise<boolean>;
+    getUserByEmail(email: string): Promise<AppUser | null>;
+    rejectUser(userId: string): Promise<void>;
 }

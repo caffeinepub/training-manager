@@ -81,6 +81,7 @@ export interface _SERVICE {
   'createModule' : ActorMethod<[string, string, string], bigint>,
   'deleteAppUser' : ActorMethod<[string], undefined>,
   'deleteCategory' : ActorMethod<[string], undefined>,
+  'deleteCompletion' : ActorMethod<[bigint], undefined>,
   'deleteModule' : ActorMethod<[bigint], undefined>,
   'getAllAssignments' : ActorMethod<[], Array<UserAssignment>>,
   'getAllCompletions' : ActorMethod<[], Array<CompletionRecord>>,
@@ -106,6 +107,11 @@ export interface _SERVICE {
   'getPublicCompletionLinks' : ActorMethod<[], Array<[bigint, string]>>,
   'updateAppUserPermission' : ActorMethod<[string, string], undefined>,
   'updateModule' : ActorMethod<[bigint, string, string, string], undefined>,
+  'approveUser' : ActorMethod<[string, string], undefined>,
+  'bootstrapAdmin' : ActorMethod<[string], undefined>,
+  'claimOwnership' : ActorMethod<[string], boolean>,
+  'getUserByEmail' : ActorMethod<[string], [] | [AppUser]>,
+  'rejectUser' : ActorMethod<[string], undefined>,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];

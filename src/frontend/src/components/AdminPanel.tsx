@@ -148,6 +148,7 @@ type Props = {
   rejectUser: (userId: string) => Promise<void>;
   assignments: { userId: string; moduleIds: string[] }[];
   publicCompletionLinks: Array<[bigint, string]>;
+  onDeleteCompletion: (id: string) => Promise<void>;
 };
 
 const EMPTY_FORM: ModuleFormData = {
@@ -177,6 +178,7 @@ export default function AdminPanel({
   rejectUser,
   assignments,
   publicCompletionLinks,
+  onDeleteCompletion,
 }: Props) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingModule, setEditingModule] = useState<TrainingModule | null>(
@@ -184,6 +186,8 @@ export default function AdminPanel({
   );
   const [formData, setFormData] = useState<ModuleFormData>(EMPTY_FORM);
   const [deleteTarget, setDeleteTarget] = useState<TrainingModule | null>(null);
+  const [deleteCompletionTarget, setDeleteCompletionTarget] =
+    useState<CompletionRecord | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [newCategoryInput, setNewCategoryInput] = useState("");
   const [rejectTarget, setRejectTarget] = useState<AppUser | null>(null);
@@ -433,7 +437,7 @@ export default function AdminPanel({
                       <th className="font-display font-semibold text-xs uppercase tracking-wider text-left px-4 py-3 hidden md:table-cell">
                         Description
                       </th>
-                      <th className="font-display font-semibold text-xs uppercase tracking-wider text-left px-4 py-3 w-[120px]">
+                      <th className="font-display font-semibold text-xs uppercase tracking-wider text-left px-4 py-3 w-[200px]">
                         Actions
                       </th>
                     </tr>
@@ -763,6 +767,7 @@ export default function AdminPanel({
                     <TableHead className="font-display font-semibold text-xs uppercase tracking-wider w-[80px]">
                       PDF
                     </TableHead>
+                    <TableHead className="font-display font-semibold text-xs uppercase tracking-wider w-[60px]" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -863,6 +868,26 @@ export default function AdminPanel({
                           </Tooltip>
                         </TooltipProvider>
                       </TableCell>
+                      <TableCell>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                data-ocid={`admin.completions.delete_button.${idx + 1}`}
+                                onClick={() => setDeleteCompletionTarget(rec)}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Delete record</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -871,7 +896,7 @@ export default function AdminPanel({
           </div>
         </TabsContent>
 
-        {/* ── Users Tab ── */}
+        {/* __ Users Tab ── */}
         <TabsContent value="users">
           <UsersPanel
             users={users}
@@ -1652,6 +1677,44 @@ export default function AdminPanel({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {/* ── Delete Completion Dialog ── */}
+      <AlertDialog
+        open={!!deleteCompletionTarget}
+        onOpenChange={(open) => !open && setDeleteCompletionTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-display font-bold">
+              Delete Completion Record
+            </AlertDialogTitle>
+            <AlertDialogDescription className="font-body text-sm">
+              Are you sure you want to delete the completion record for{" "}
+              <strong>"{deleteCompletionTarget?.userName}"</strong>? This action
+              cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              data-ocid="admin.delete_completion.cancel_button"
+              className="font-display font-semibold"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                if (!deleteCompletionTarget) return;
+                await onDeleteCompletion(deleteCompletionTarget.id);
+                setDeleteCompletionTarget(null);
+              }}
+              data-ocid="admin.delete_completion.confirm_button"
+              className="bg-destructive text-destructive-foreground font-display font-semibold hover:bg-destructive/90"
+            >
+              Delete Record
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* ── Reject User Dialog ── */}
       <AlertDialog
         open={!!rejectTarget}

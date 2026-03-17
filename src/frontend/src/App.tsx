@@ -50,6 +50,7 @@ export default function App() {
     createModule,
     updateModule,
     deleteModule,
+    deleteCompletion,
     addCompletion,
     getCompletionForModule,
     createUser,
@@ -796,6 +797,7 @@ export default function App() {
               onCreate={createModule}
               onUpdate={updateModule}
               onDelete={deleteModule}
+              onDeleteCompletion={deleteCompletion}
               onView={handleAdminViewModule}
               onCreateUser={createUser}
               onDeleteUser={deleteUser}

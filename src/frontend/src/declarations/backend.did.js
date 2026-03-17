@@ -97,6 +97,7 @@ export const idlService = IDL.Service({
   'createModule' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [IDL.Nat], []),
   'deleteAppUser' : IDL.Func([IDL.Text], [], []),
   'deleteCategory' : IDL.Func([IDL.Text], [], []),
+  'deleteCompletion' : IDL.Func([IDL.Nat], [], []),
   'deleteModule' : IDL.Func([IDL.Nat], [], []),
   'getAllAssignments' : IDL.Func([], [IDL.Vec(UserAssignment)], ['query']),
   'getAllCompletions' : IDL.Func([], [IDL.Vec(CompletionRecord)], ['query']),
@@ -146,6 +147,11 @@ export const idlService = IDL.Service({
   'getPublicCompletionLinks' : IDL.Func([], [IDL.Vec(IDL.Tuple([IDL.Nat, IDL.Text]))], ['query']),
   'updateAppUserPermission' : IDL.Func([IDL.Text, IDL.Text], [], []),
   'updateModule' : IDL.Func([IDL.Nat, IDL.Text, IDL.Text, IDL.Text], [], []),
+  'approveUser' : IDL.Func([IDL.Text, IDL.Text], [], []),
+  'bootstrapAdmin' : IDL.Func([IDL.Text], [], []),
+  'claimOwnership' : IDL.Func([IDL.Text], [IDL.Bool], []),
+  'getUserByEmail' : IDL.Func([IDL.Text], [IDL.Opt(AppUser)], ['query']),
+  'rejectUser' : IDL.Func([IDL.Text], [], []),
 });
 
 export const idlInitArgs = [];
@@ -240,7 +246,8 @@ export const idlFactory = ({ IDL }) => {
     'createModule' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [IDL.Nat], []),
     'deleteAppUser' : IDL.Func([IDL.Text], [], []),
     'deleteCategory' : IDL.Func([IDL.Text], [], []),
-    'deleteModule' : IDL.Func([IDL.Nat], [], []),
+    'deleteCompletion' : IDL.Func([IDL.Nat], [], []),
+  'deleteModule' : IDL.Func([IDL.Nat], [], []),
     'getAllAssignments' : IDL.Func([], [IDL.Vec(UserAssignment)], ['query']),
     'getAllCompletions' : IDL.Func([], [IDL.Vec(CompletionRecord)], ['query']),
     'getAppUser' : IDL.Func([IDL.Text], [IDL.Opt(AppUser)], ['query']),
@@ -289,6 +296,11 @@ export const idlFactory = ({ IDL }) => {
     'getPublicCompletionLinks' : IDL.Func([], [IDL.Vec(IDL.Tuple([IDL.Nat, IDL.Text]))], ['query']),
     'updateAppUserPermission' : IDL.Func([IDL.Text, IDL.Text], [], []),
     'updateModule' : IDL.Func([IDL.Nat, IDL.Text, IDL.Text, IDL.Text], [], []),
+    'approveUser' : IDL.Func([IDL.Text, IDL.Text], [], []),
+    'bootstrapAdmin' : IDL.Func([IDL.Text], [], []),
+    'claimOwnership' : IDL.Func([IDL.Text], [IDL.Bool], []),
+    'getUserByEmail' : IDL.Func([IDL.Text], [IDL.Opt(AppUser)], ['query']),
+    'rejectUser' : IDL.Func([IDL.Text], [], []),
   });
 };
 
